@@ -14,7 +14,7 @@ import pandas as pd
 from config import (
     AGE_BUCKETS, AGE_BUCKET_BOUNDS, BACKLOG_STATUSES, COL_CREATED, COL_GROUP,
     COL_INITIAL_RESPONSE, COL_RESOLVED, COL_SELLER_ID, COL_STATUS, COL_TICKET_ID,
-    COL_TYPE, MAP_SALES_PERSON, TAT_BUCKETS, TAT_BUCKET_BOUNDS,
+    COL_TYPE, MAP_SELLER_NAME, NO_TEAM_LABEL, TAT_BUCKETS, TAT_BUCKET_BOUNDS,
 )
 
 
@@ -35,25 +35,57 @@ def as_of_date(created: pd.Series) -> pd.Timestamp:
     return pd.Timestamp(latest).normalize() + pd.Timedelta(hours=23, minutes=59, seconds=59)
 
 
-def _classify_sales_person(seller_id_num: pd.Series, mapping: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
-    """Returns (mapping_status, sales_person) Series.
+def _resolve_ownership(seller_id_num: pd.Series, mapping: pd.DataFrame,
+                        team_data: pd.DataFrame | None, team_lists: pd.DataFrame | None
+                        ) -> tuple[pd.Series, pd.Series, pd.Series, pd.Series]:
+    """Returns (mapping_status, sales_person, team, seller_name) Series.
 
-    mapping_status in {"No Seller ID", "Unmapped Seller", "Mapped"}.
-    sales_person is the rep's normalized name, or "Unassigned Rep" for a
-    mapped seller with no rep on file, or mirrors mapping_status's label for
-    the two unmapped cases (so it can be used directly as one dimension).
+    Sales Person / Team resolution priority per Seller ID:
+      1. Team Level Data (seller Id -> Sales Person, Team) - the more
+         complete, more current source.
+      2. The plain Sales Mapping file (Seller ID -> Sales Person) - used
+         where Team Level Data doesn't cover a seller. It carries no Team,
+         so Team then falls back to the Team Lists roster (Sales Person ->
+         Team) if that person is on it, else "No Team Info".
+      3. Neither source has the Seller ID -> "Unmapped Seller".
+
+    mapping_status in {"No Seller ID", "Unmapped Seller", "Mapped"}. Both
+    sales_person and team mirror mapping_status's label for the two unmapped
+    cases, so either can be used directly as one dimension.
     """
-    id_to_person = dict(zip(mapping["_seller_id_num"], mapping["_sales_person_norm"]))
+    id_to_name = dict(zip(mapping["_seller_id_num"], mapping[MAP_SELLER_NAME]))
+    id_to_person_old = dict(zip(mapping["_seller_id_num"], mapping["_sales_person_norm"]))
     known_ids = set(mapping["_seller_id_num"])
+
+    id_to_person_td: dict = {}
+    id_to_team_td: dict = {}
+    if team_data is not None:
+        id_to_person_td = dict(zip(team_data["_seller_id_num"], team_data["_sales_person_norm"]))
+        id_to_team_td = dict(zip(team_data["_seller_id_num"], team_data["_team_norm"]))
+        known_ids = known_ids | set(team_data["_seller_id_num"])
+
+    person_to_team_list: dict = {}
+    if team_lists is not None:
+        person_to_team_list = dict(zip(team_lists["_sales_person_norm"], team_lists["_team_norm"]))
 
     mapping_status = pd.Series("Mapped", index=seller_id_num.index, dtype="object")
     mapping_status[seller_id_num.isna()] = "No Seller ID"
     mapping_status[seller_id_num.notna() & ~seller_id_num.isin(known_ids)] = "Unmapped Seller"
 
-    sales_person = seller_id_num.map(id_to_person)
+    sp_from_team_data = seller_id_num.map(id_to_person_td)
+    sp_from_mapping = seller_id_num.map(id_to_person_old)
+    sales_person = sp_from_team_data.where(sp_from_team_data.notna(), sp_from_mapping)
     sales_person = sales_person.where(sales_person.notna(), "Unassigned Rep")
     sales_person = sales_person.where(mapping_status == "Mapped", mapping_status)
-    return mapping_status, sales_person
+
+    team_from_team_data = seller_id_num.map(id_to_team_td)
+    team_from_roster = sales_person.map(person_to_team_list)
+    team = team_from_team_data.where(team_from_team_data.notna(), team_from_roster)
+    team = team.where(team.notna(), NO_TEAM_LABEL)
+    team = team.where(mapping_status == "Mapped", mapping_status)
+
+    seller_name = seller_id_num.map(id_to_name)
+    return mapping_status, sales_person, team, seller_name
 
 
 @dataclass
@@ -62,7 +94,8 @@ class ComputedData:
     as_of: pd.Timestamp
 
 
-def compute(raw: pd.DataFrame, mapping: pd.DataFrame) -> ComputedData:
+def compute(raw: pd.DataFrame, mapping: pd.DataFrame, team_data: pd.DataFrame | None = None,
+            team_lists: pd.DataFrame | None = None) -> ComputedData:
     n = len(raw)
     c = pd.DataFrame(index=raw.index)
 
@@ -76,7 +109,11 @@ def compute(raw: pd.DataFrame, mapping: pd.DataFrame) -> ComputedData:
 
     seller_id_num = pd.to_numeric(raw[COL_SELLER_ID], errors="coerce")
     c["SellerID"] = seller_id_num
-    c["MappingStatus"], c["SalesPerson"] = _classify_sales_person(seller_id_num, mapping)
+    c["MappingStatus"], c["SalesPerson"], c["Team"], c["SellerName"] = _resolve_ownership(
+        seller_id_num, mapping, team_data, team_lists)
+    c["SellerLabel"] = c["SellerName"].where(
+        c["SellerName"].notna(), seller_id_num.apply(lambda x: f"Seller {int(x)}" if pd.notna(x) else None))
+    c["SellerLabel"] = c["SellerLabel"].where(c["SellerLabel"].notna(), c["MappingStatus"])
 
     fr_hours = (raw[COL_INITIAL_RESPONSE] - raw[COL_CREATED]).dt.total_seconds() / 3600
     fr_hours = fr_hours.where(fr_hours >= 0)  # negative TAT excluded, not zeroed

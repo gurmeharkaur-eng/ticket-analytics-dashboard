@@ -41,6 +41,37 @@ MAP_SELLER_ID = "Seller ID"
 MAP_SELLER_NAME = "Seller Name"
 MAP_SALES_PERSON = "Sales Person Name"
 
+# --- Team Level Data (Seller ID -> Sales Person -> Team -> Owner/KAM) -------
+# This is the primary, more complete seller-ownership source (per-seller, not
+# a stale historical dump) - it wins over the plain Sales Mapping file when
+# both cover the same Seller ID. The Sales Mapping file remains the source
+# for Seller Name display and for sellers Team Level Data doesn't cover.
+TEAM_DATA_SELLER_ID = "seller Id"
+TEAM_DATA_SALES_PERSON = "Sales Person"
+TEAM_DATA_TEAM = "Team"
+TEAM_DATA_OWNER = "Owner"
+TEAM_DATA_KAM_PERSON = "KAM Person"
+TEAM_DATA_MONTH = "Month"
+# Preference order when the same Seller ID appears more than once (keeps the
+# most recent month's assignment).
+TEAM_DATA_MONTH_ORDER = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Sep", "Oct", "Nov", "Dec"]
+
+# Team Lists: Sales Person -> Team roster, used as a fallback when Team Level
+# Data doesn't name a Team for a Sales Person it does identify.
+TEAM_LIST_SALES_PERSON = "Sales Person"
+TEAM_LIST_TEAM = "Team"
+
+# Team name spelling varies slightly between the two team files (e.g. "End
+# Game" vs "Endgame") - normalized to one canonical spelling each.
+TEAM_NAME_CANONICAL = {
+    "END GAME": "Endgame",
+    "ENDGAME": "Endgame",
+    "BHILLAI KAM": "Bhillai KAM",
+    "(BHILLAI) KAM": "Bhillai KAM",
+    "COMMON SUPPORT": "Common Support",
+}
+NO_TEAM_LABEL = "No Team Info"
+
 # Number of trailing months shown in Month-on-Month tables, ending in the
 # AS-OF month.
 MOM_MONTHS_BACK = 12

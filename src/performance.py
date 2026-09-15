@@ -140,7 +140,10 @@ def sales_performance(c: pd.DataFrame, reps: list[str], bm: Benchmark | None = N
         high_vol = row["Total Raised"] >= vol_median
         if row["RR vs Benchmark (pp)"] >= OPPORTUNITY_DEVIATION_PP:
             return "Low-volume, high-performing" if not high_vol else "High performer"
-        if row["RR vs Benchmark (pp)"] <= -HIGH_PRIORITY_DEVIATION_PP:
+        # Uses the same -5pp threshold as the Medium Priority Flag (not the
+        # stricter -10pp High Priority one) so a rep never gets tagged
+        # "Typical" in one place while being flagged as a problem elsewhere.
+        if row["RR vs Benchmark (pp)"] <= -MEDIUM_PRIORITY_DEVIATION_PP:
             return "High-volume, low-performing" if high_vol else "Low performer"
         return "Typical / near benchmark"
 
@@ -358,7 +361,11 @@ def mine_actionable_insights(c: pd.DataFrame, reps: list[str], bm: Benchmark | N
     priority_rank = {"High Priority": 0, "Medium Priority": 1, "Opportunity": 2}
     out = out.assign(_prank=out["Priority"].map(priority_rank)) \
              .sort_values(["_prank", "_impact"], ascending=[True, False]) \
-             .drop(columns=["_prank", "_impact"])
+             .drop(columns=["_prank"])
+    # `_impact` is kept (not dropped) so callers combining this list with
+    # other mined-insight lists (e.g. report.py's Group x Type + Sales Rep +
+    # Seller merge) can still sort the combined pool consistently. Drop it
+    # at display time if rendering this DataFrame directly as a table.
     return out.head(MAX_ACTIONABLE_INSIGHTS).reset_index(drop=True)
 
 
