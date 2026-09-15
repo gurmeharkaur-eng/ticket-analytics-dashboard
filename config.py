@@ -44,6 +44,15 @@ MAP_SELLER_ID = "Seller ID"
 MAP_SELLER_NAME = "Seller Name"
 MAP_SALES_PERSON = "Sales Person Name"
 
+# --- LSQ Seller Data (Seller ID -> Seller Name -> Seller Company Name) -----
+# Optional extra name source (e.g. "LSQ Raw.xlsx" CRM/lead export). Adds
+# Seller Name coverage for Seller IDs the Sales Mapping file doesn't have a
+# name for, and is the only source for Seller Company Name (a distinct field
+# from Seller Name - shown alongside it, not merged into it).
+LSQ_SELLER_ID = "Seller_ID"
+LSQ_SELLER_NAME = "Seller_Name"
+LSQ_COMPANY_NAME = "Seller_Company_Name"
+
 # --- Team Level Data (Seller ID -> Sales Person -> Team -> Owner/KAM) -------
 # This is the primary, more complete seller-ownership source (per-seller, not
 # a stale historical dump) - it wins over the plain Sales Mapping file when

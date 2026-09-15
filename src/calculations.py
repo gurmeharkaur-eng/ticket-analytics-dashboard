@@ -14,7 +14,8 @@ import pandas as pd
 from config import (
     AGE_BUCKETS, AGE_BUCKET_BOUNDS, BACKLOG_STATUSES, COL_CREATED, COL_DUE_BY, COL_GROUP,
     COL_INITIAL_RESPONSE, COL_RESOLVED, COL_SELLER_ID, COL_STATUS, COL_SURVEY, COL_TICKET_ID,
-    COL_TYPE, MAP_SELLER_NAME, NO_TEAM_LABEL, TAT_BUCKETS, TAT_BUCKET_BOUNDS,
+    COL_TYPE, LSQ_COMPANY_NAME, LSQ_SELLER_NAME, MAP_SELLER_NAME, NO_TEAM_LABEL, TAT_BUCKETS,
+    TAT_BUCKET_BOUNDS,
 )
 
 
@@ -72,9 +73,10 @@ def as_of_date(created: pd.Series) -> pd.Timestamp:
 
 
 def _resolve_ownership(seller_id_num: pd.Series, mapping: pd.DataFrame,
-                        team_data: pd.DataFrame | None, team_lists: pd.DataFrame | None
-                        ) -> tuple[pd.Series, pd.Series, pd.Series, pd.Series]:
-    """Returns (mapping_status, sales_person, team, seller_name) Series.
+                        team_data: pd.DataFrame | None, team_lists: pd.DataFrame | None,
+                        lsq_data: pd.DataFrame | None = None
+                        ) -> tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
+    """Returns (mapping_status, sales_person, team, seller_name, seller_company_name) Series.
 
     Sales Person / Team resolution priority per Seller ID:
       1. Team Level Data (seller Id -> Sales Person, Team) - the more
@@ -84,6 +86,13 @@ def _resolve_ownership(seller_id_num: pd.Series, mapping: pd.DataFrame,
          so Team then falls back to the Team Lists roster (Sales Person ->
          Team) if that person is on it, else "No Team Info".
       3. Neither source has the Seller ID -> "Unmapped Seller".
+
+    Seller Name priority: the Sales Mapping file's name first, then the
+    optional LSQ Seller Data file's name where the mapping file has none -
+    LSQ covers a different (mostly non-overlapping) set of Seller IDs, so it
+    fills real gaps rather than overriding a curated name. Seller Company
+    Name has no other source and comes from LSQ alone, shown as its own
+    field, never folded into Seller Name.
 
     mapping_status in {"No Seller ID", "Unmapped Seller", "Mapped"}. Both
     sales_person and team mirror mapping_status's label for the two unmapped
@@ -104,6 +113,12 @@ def _resolve_ownership(seller_id_num: pd.Series, mapping: pd.DataFrame,
     if team_lists is not None:
         person_to_team_list = dict(zip(team_lists["_sales_person_norm"], team_lists["_team_norm"]))
 
+    id_to_lsq_name: dict = {}
+    id_to_lsq_company: dict = {}
+    if lsq_data is not None:
+        id_to_lsq_name = dict(zip(lsq_data["_seller_id_num"], lsq_data[LSQ_SELLER_NAME]))
+        id_to_lsq_company = dict(zip(lsq_data["_seller_id_num"], lsq_data[LSQ_COMPANY_NAME]))
+
     mapping_status = pd.Series("Mapped", index=seller_id_num.index, dtype="object")
     mapping_status[seller_id_num.isna()] = "No Seller ID"
     mapping_status[seller_id_num.notna() & ~seller_id_num.isin(known_ids)] = "Unmapped Seller"
@@ -121,7 +136,10 @@ def _resolve_ownership(seller_id_num: pd.Series, mapping: pd.DataFrame,
     team = team.where(mapping_status == "Mapped", mapping_status)
 
     seller_name = seller_id_num.map(id_to_name)
-    return mapping_status, sales_person, team, seller_name
+    seller_name_lsq = seller_id_num.map(id_to_lsq_name)
+    seller_name = seller_name.where(seller_name.notna(), seller_name_lsq)
+    seller_company_name = seller_id_num.map(id_to_lsq_company)
+    return mapping_status, sales_person, team, seller_name, seller_company_name
 
 
 @dataclass
@@ -131,7 +149,7 @@ class ComputedData:
 
 
 def compute(raw: pd.DataFrame, mapping: pd.DataFrame, team_data: pd.DataFrame | None = None,
-            team_lists: pd.DataFrame | None = None) -> ComputedData:
+            team_lists: pd.DataFrame | None = None, lsq_data: pd.DataFrame | None = None) -> ComputedData:
     n = len(raw)
     c = pd.DataFrame(index=raw.index)
 
@@ -145,8 +163,8 @@ def compute(raw: pd.DataFrame, mapping: pd.DataFrame, team_data: pd.DataFrame | 
 
     seller_id_num = pd.to_numeric(raw[COL_SELLER_ID], errors="coerce")
     c["SellerID"] = seller_id_num
-    c["MappingStatus"], c["SalesPerson"], c["Team"], c["SellerName"] = _resolve_ownership(
-        seller_id_num, mapping, team_data, team_lists)
+    c["MappingStatus"], c["SalesPerson"], c["Team"], c["SellerName"], c["SellerCompanyName"] = _resolve_ownership(
+        seller_id_num, mapping, team_data, team_lists, lsq_data)
     c["SellerLabel"] = c["SellerName"].where(
         c["SellerName"].notna(), seller_id_num.apply(lambda x: f"Seller {int(x)}" if pd.notna(x) else None))
     c["SellerLabel"] = c["SellerLabel"].where(c["SellerLabel"].notna(), c["MappingStatus"])

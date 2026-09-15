@@ -11,6 +11,7 @@ import pandas as pd
 
 from config import (
     COL_CREATED, COL_DUE_BY, COL_INITIAL_RESPONSE, COL_RESOLVED, COL_SELLER_ID,
+    LSQ_COMPANY_NAME, LSQ_SELLER_ID, LSQ_SELLER_NAME,
     MAP_SALES_PERSON, MAP_SELLER_ID, MAP_SELLER_NAME,
     REQUIRED_RAW_COLUMNS, RECOMMENDED_RAW_COLUMNS,
     TEAM_DATA_MONTH, TEAM_DATA_MONTH_ORDER, TEAM_DATA_SALES_PERSON, TEAM_DATA_SELLER_ID,
@@ -43,6 +44,7 @@ class LoadResult:
     mapping: pd.DataFrame
     team_data: pd.DataFrame | None = None
     team_lists: pd.DataFrame | None = None
+    lsq_data: pd.DataFrame | None = None
     warnings: list[str] = field(default_factory=list)
 
 
@@ -147,7 +149,36 @@ def load_team_level_data(source) -> pd.DataFrame:
     return df
 
 
-def load_all(raw_source, mapping_source, team_data_source=None, team_lists_source=None) -> LoadResult:
+def load_lsq_seller_data(source) -> pd.DataFrame:
+    """Seller ID -> Seller Name -> Seller Company Name, from a CRM/lead-style
+    export (e.g. "LSQ Raw.xlsx"). Used as a fallback Seller Name source for
+    Seller IDs the Sales Mapping file doesn't cover, and as the only source
+    for Seller Company Name - a distinct field (the registered business/
+    company name) shown alongside Seller Name, not merged into it."""
+    df = _read_any(source)
+    df.columns = [str(c).strip() for c in df.columns]
+    missing = [c for c in (LSQ_SELLER_ID, LSQ_SELLER_NAME) if c not in df.columns]
+    if missing:
+        raise ValueError("LSQ Seller Data file is missing required column(s): " + ", ".join(missing))
+    if LSQ_COMPANY_NAME not in df.columns:
+        df[LSQ_COMPANY_NAME] = pd.NA
+
+    df["_seller_id_num"] = pd.to_numeric(df[LSQ_SELLER_ID], errors="coerce")
+    df[LSQ_SELLER_NAME] = df[LSQ_SELLER_NAME].astype("string").str.strip()
+    df[LSQ_COMPANY_NAME] = df[LSQ_COMPANY_NAME].astype("string").str.strip()
+
+    total_rows = len(df)
+    df = df.dropna(subset=["_seller_id_num"])
+    # A handful of Seller IDs repeat (duplicate signups) - prefer the row
+    # that has a Company Name when picking which one to keep.
+    df = df.sort_values(by=[LSQ_COMPANY_NAME], na_position="last")
+    df = df.drop_duplicates("_seller_id_num", keep="first").reset_index(drop=True)
+    df.attrs["dedup_meta"] = {"raw_rows": total_rows, "unique_sellers": len(df)}
+    return df
+
+
+def load_all(raw_source, mapping_source, team_data_source=None, team_lists_source=None,
+             lsq_source=None) -> LoadResult:
     warnings: list[str] = []
     raw = load_raw_tickets(raw_source)
     mapping = load_seller_mapping(mapping_source)
@@ -166,8 +197,16 @@ def load_all(raw_source, mapping_source, team_data_source=None, team_lists_sourc
         except Exception as e:
             warnings.append(f"Team Lists could not be read and was skipped: {e}")
 
+    lsq_data = None
+    if lsq_source is not None:
+        try:
+            lsq_data = load_lsq_seller_data(lsq_source)
+        except Exception as e:
+            warnings.append(f"LSQ Seller Data could not be read and was skipped: {e}")
+
     dup_ids = raw[raw.columns[0]].duplicated().sum() if len(raw.columns) else 0
     if dup_ids:
         warnings.append(f"{dup_ids} duplicate Ticket ID(s) found in the raw file - see Data Quality tab.")
 
-    return LoadResult(raw=raw, mapping=mapping, team_data=team_data, team_lists=team_lists, warnings=warnings)
+    return LoadResult(raw=raw, mapping=mapping, team_data=team_data, team_lists=team_lists,
+                       lsq_data=lsq_data, warnings=warnings)

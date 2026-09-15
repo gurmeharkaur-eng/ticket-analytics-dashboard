@@ -98,13 +98,15 @@ LOGIC_VALIDATION_ROWS = [
      "from timestamps, not read off the raw status field, so it stays correct if Due by Time is edited or "
      "the export format changes). Tickets not yet resolved, or missing a Due by Time, are excluded, not "
      "counted as a breach."),
-    ("CSAT / Survey results",
-     "Not previously used.",
-     "The raw 'Survey results' column is 99.6% empty (45 responses out of 10,039 tickets in the sample) - "
-     "a real, low-response-rate characteristic of this business, not a data quality gap on our end.",
-     "CSAT is parsed from the '(Positive/Neutral/Negative)' sentiment label in the raw text response "
-     "(not the leading numeric score, since the numeric-to-sentiment mapping isn't guaranteed stable "
-     "across survey configurations). Shown with its response count alongside and deliberately NOT "
-     "color-coded per time period - the volume is too thin to trust a red/amber/green flag day-by-day "
-     "without it being misleading."),
+    ("Seller Name / Seller Company Name coverage",
+     "Seller Name came only from the Sales Mapping file, which names just ~35% of ticket volume's sellers "
+     "(868 of 1,714 unique Seller IDs in the sample) - the rest showed as a bare 'Seller <ID>'.",
+     "An optional LSQ Seller Data file (e.g. a CRM/lead export) covers a largely different set of Seller "
+     "IDs (294 new IDs beyond the mapping file, in the sample) and also carries a Seller Company Name "
+     "field the mapping file doesn't have at all.",
+     "Seller Name: Sales Mapping file's name first, LSQ Seller Data's name as a fallback only where the "
+     "mapping file has none for that Seller ID (raises ticket-row name coverage from ~36% to ~60% in the "
+     "sample) - never overrides a name the mapping file already has. Seller Company Name is a separate "
+     "field sourced from LSQ alone (no fallback exists), shown alongside Seller Name, not merged into it, "
+     "since a seller's display name and its registered company name are different things."),
 ]

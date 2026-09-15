@@ -33,7 +33,8 @@ def _default_or_none(folder: Path, filename: str):
 
 @st.cache_data(show_spinner=False)
 def _cached_load_and_compute(raw_bytes, raw_name, map_bytes, map_name,
-                              team_data_bytes, team_data_name, team_lists_bytes, team_lists_name):
+                              team_data_bytes, team_data_name, team_lists_bytes, team_lists_name,
+                              lsq_bytes, lsq_name):
     import io
     raw_buf = io.BytesIO(raw_bytes)
     raw_buf.name = raw_name
@@ -47,9 +48,13 @@ def _cached_load_and_compute(raw_bytes, raw_name, map_bytes, map_name,
     if team_lists_bytes is not None:
         team_lists_buf = io.BytesIO(team_lists_bytes)
         team_lists_buf.name = team_lists_name
+    lsq_buf = None
+    if lsq_bytes is not None:
+        lsq_buf = io.BytesIO(lsq_bytes)
+        lsq_buf.name = lsq_name
 
-    result = load_all(raw_buf, map_buf, team_data_buf, team_lists_buf)
-    computed = compute(result.raw, result.mapping, result.team_data, result.team_lists)
+    result = load_all(raw_buf, map_buf, team_data_buf, team_lists_buf, lsq_buf)
+    computed = compute(result.raw, result.mapping, result.team_data, result.team_lists, result.lsq_data)
 
     reps = set(result.mapping["_sales_person_norm"].dropna().unique().tolist())
     if result.team_data is not None:
@@ -89,12 +94,18 @@ with st.sidebar:
         help="Sales Person -> Team roster. Fills in Team for a Sales Person that Team Level Data names but "
              "doesn't tag with a Team.",
     )
+    lsq_file = st.file_uploader(
+        "LSQ Seller Data (optional)", type=["csv", "xlsx"],
+        help="Seller_ID -> Seller_Name -> Seller_Company_Name (e.g. an LSQ CRM export). Fills Seller Name "
+             "gaps the Sales Mapping file doesn't cover, and is the only source for Seller Company Name.",
+    )
     st.caption("Replace any file to recalculate the entire report from that file.")
 
 raw_source = raw_file or _default_or_none(SAMPLE_DIR, "raw_tickets.csv")
 map_source = map_file or _default_or_none(SAMPLE_DIR, "seller_mapping.csv")
 team_data_source = team_data_file or _default_or_none(SAMPLE_DIR, "team_level_data.xlsx")
 team_lists_source = team_lists_file or _default_or_none(SAMPLE_DIR, "team_lists.xlsx")
+lsq_source = lsq_file or _default_or_none(SAMPLE_DIR, "lsq_seller_data.xlsx")
 
 if raw_source is None or map_source is None:
     st.title(APP_TITLE)
@@ -105,12 +116,14 @@ raw_name = getattr(raw_source, "name", str(raw_source))
 map_name = getattr(map_source, "name", str(map_source))
 team_data_name = getattr(team_data_source, "name", str(team_data_source)) if team_data_source is not None else None
 team_lists_name = getattr(team_lists_source, "name", str(team_lists_source)) if team_lists_source is not None else None
+lsq_name = getattr(lsq_source, "name", str(lsq_source)) if lsq_source is not None else None
 
 with st.spinner("Reading, validating, and calculating..."):
     try:
         load_result, computed_data, reps = _cached_load_and_compute(
             _read_bytes(raw_source), raw_name, _read_bytes(map_source), map_name,
             _read_bytes(team_data_source), team_data_name, _read_bytes(team_lists_source), team_lists_name,
+            _read_bytes(lsq_source), lsq_name,
         )
     except Exception as e:
         st.error(f"Could not process the uploaded files: {e}")
@@ -121,5 +134,5 @@ for w in load_result.warnings:
 
 report.render(
     computed_data.df, computed_data.as_of, reps, load_result.mapping, load_result.raw,
-    load_result.team_data, load_result.team_lists,
+    load_result.team_data, load_result.team_lists, load_result.lsq_data,
 )

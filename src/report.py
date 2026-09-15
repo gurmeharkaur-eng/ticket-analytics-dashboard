@@ -19,7 +19,8 @@ from src.styling import color_legend, fmt_hrs, fmt_int, fmt_pct, kpi_row, sectio
 
 
 def render(c: pd.DataFrame, as_of: pd.Timestamp, reps: list[str], mapping: pd.DataFrame,
-           raw: pd.DataFrame, team_data: pd.DataFrame | None, team_lists: pd.DataFrame | None) -> None:
+           raw: pd.DataFrame, team_data: pd.DataFrame | None, team_lists: pd.DataFrame | None,
+           lsq_data: pd.DataFrame | None = None) -> None:
     bm = perf.compute_benchmark(c)
     total = len(c)
     coverage = sa.seller_mapping_coverage(c)
@@ -97,9 +98,9 @@ def render(c: pd.DataFrame, as_of: pd.Timestamp, reps: list[str], mapping: pd.Da
         st.caption(f"No Group x Type x Seller combination currently reaches {sa.MIN_SEGMENT_VOLUME} tickets.")
     else:
         status_color = {"High-volume underperformer": tm.RED, "Low-volume outlier": tm.AMBER, "Healthy": tm.GREEN}
-        display = gts[["Group", "Type", "SellerLabel", "SalesPerson", "Team", "Tickets",
+        display = gts[["Group", "Type", "SellerLabel", "SellerCompanyName", "SalesPerson", "Team", "Tickets",
                         "Avg Resolution TAT", "Backlog %", ">16h", ">24h", "Status"]] \
-            .rename(columns={"SellerLabel": "Seller"})
+            .rename(columns={"SellerLabel": "Seller", "SellerCompanyName": "Seller Company"})
         row_colors = gts["Status"].map(status_color)
         show_table(display, int_cols=["Tickets", ">16h", ">24h"], pct_cols=["Backlog %"],
                    dec_cols=["Avg Resolution TAT"], height=500, row_colors=row_colors)
@@ -130,6 +131,10 @@ def render(c: pd.DataFrame, as_of: pd.Timestamp, reps: list[str], mapping: pd.Da
             st.caption(f"Team Level Data: {meta.get('unique_sellers', '?'):,} unique sellers loaded "
                        f"({meta.get('conflicting_rows', 0)} rows had a conflicting duplicate Seller ID - "
                        "most recent month kept).")
+        if lsq_data is not None:
+            meta = lsq_data.attrs.get("dedup_meta", {})
+            st.caption(f"LSQ Seller Data: {meta.get('unique_sellers', '?'):,} unique sellers loaded - used to "
+                       "fill Seller Name gaps and provide Seller Company Name.")
         show_table(dq.missing_field_rates(c), int_cols=["Missing / Blank"], pct_cols=["% of Total Tickets"])
 
     with st.expander("Logic Validation - corrections made to the brief's assumed logic"):

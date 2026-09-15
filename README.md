@@ -49,6 +49,11 @@ streamlit run app.py
    with this file added).
 4. **Team Lists** (optional) - Sales Person -> Team roster, fills gaps Team
    Level Data leaves.
+5. **LSQ Seller Data** (optional) - `Seller_ID`, `Seller_Name`,
+   `Seller_Company_Name` (e.g. a CRM/lead export). Fills Seller Name gaps
+   the Sales Mapping file doesn't cover (never overrides a name the mapping
+   file already has), and is the only source for Seller Company Name -
+   shown as its own field alongside Seller Name in the Seller Problem Table.
 
 `sample_data/` is entirely gitignored - local test copies only, never
 pushed to GitHub or shown on a deployed link.
@@ -76,7 +81,9 @@ pushed to GitHub or shown on a deployed link.
 5. **Seller Problem Table** - every Group x Type x Seller combination with
    >=20 tickets, **not filtered down to a shortlist** - the whole table,
    with the row itself colored (red/amber/green) so problems are scannable
-   without hiding the rest of the data.
+   without hiding the rest of the data. Shows Seller Name and, where the
+   optional LSQ Seller Data file covers that seller, Seller Company Name
+   alongside it.
 6. **Priority Actions** - mined findings from the current snapshot, ranked
    by business impact.
 7. Collapsed at the bottom: Data Quality reconciliation, Logic Validation,
@@ -115,7 +122,9 @@ colored.
   Sales Person/Team wins where it covers a seller; the plain Sales Mapping
   file fills in Seller Name always, and Sales Person where Team Level Data
   doesn't cover that seller; Team Lists fills in Team where Team Level Data
-  names a Sales Person but doesn't tag a Team. Full list of corrections and
+  names a Sales Person but doesn't tag a Team. Seller Name falls back to the
+  optional LSQ Seller Data file only where the Sales Mapping file has none;
+  Seller Company Name comes from LSQ alone. Full list of corrections and
   why: see the report's Logic Validation section.
 
 ## Verifying the numbers

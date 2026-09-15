@@ -38,6 +38,13 @@ def group_type_seller_table(c: pd.DataFrame, min_volume: int = MIN_SEGMENT_VOLUM
     out[">24h"] = over24.reindex(out.index).fillna(0).astype(int)
     out = out[out["Tickets"] >= min_volume].reset_index()
 
+    # Seller Company Name is a per-Seller-ID attribute (from the optional LSQ
+    # file) - mapped in separately rather than added to SELLER_KEYS, since a
+    # groupby key with nulls (most sellers currently have no company name on
+    # file) would silently drop those rows from the table.
+    id_to_company = c.dropna(subset=["SellerID"]).drop_duplicates("SellerID").set_index("SellerID")["SellerCompanyName"]
+    out["SellerCompanyName"] = out["SellerID"].map(id_to_company)
+
     out["Backlog %"] = out["Total Backlog"] / out["Tickets"]
     out["Resolution Rate"] = 1 - out["Backlog %"]
     out["RR vs Benchmark (pp)"] = out["Resolution Rate"] - bm.resolution_rate
