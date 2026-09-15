@@ -72,12 +72,14 @@ def render(c: pd.DataFrame, as_of: pd.Timestamp, reps: list[str], mapping: pd.Da
     fr_rows = tm.group_type_person_hierarchy_rows(c, periods, "FRTAT", bm.median_fr_tat, grp_labels)
     frdata, frcolors = tm.build_matrix(fr_rows, periods)
     show_matrix(frdata, frcolors, height=680)
+    st.caption("Segment color: dark = Group, blue = Type, purple = Sales Person.")
 
     section("Group -> Type -> Sales Person: Resolution TAT - Time Period Trend",
             "Same hierarchy, Resolution TAT instead of First Response TAT.")
     res_rows = tm.group_type_person_hierarchy_rows(c, periods, "RESTAT", bm.median_res_tat, grp_labels)
     resdata, rescolors = tm.build_matrix(res_rows, periods)
     show_matrix(resdata, rescolors, height=680)
+    st.caption("Segment color: dark = Group, blue = Type, purple = Sales Person.")
 
     # --------------------------------------------------------------- Seller Matrix --
     section("Seller Performance - Time Period Trend", "Top sellers by ticket volume (real Seller IDs only).")

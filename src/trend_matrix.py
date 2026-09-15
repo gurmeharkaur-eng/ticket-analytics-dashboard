@@ -25,6 +25,18 @@ AMBER = "#FDE68A"
 GREEN = "#86EFAC"
 NO_DATA = "-"
 
+# Hierarchy-level color for the "Segment" label column (Group/Type/Sales
+# Person), independent of the per-cell performance colors. Streamlit's
+# dataframe grid only renders Styler cell-background styling, not pandas'
+# Styler.apply_index() - confirmed by testing - so this has to be a real
+# data column colored the same way the performance cells are, not an
+# index-styling trick.
+LEVEL_COLOR = {
+    0: "background-color: #1F2937; color: #FFFFFF; font-weight: 700",  # Group
+    1: "background-color: #DBEAFE; color: #1E3A8A; font-weight: 600",  # Type
+    2: "background-color: #EDE9FE; color: #5B21B6",                    # Sales Person
+}
+
 # Resolution Rate / In-TAT% / Avg TAT for the freshest 1-2 days are not a
 # fair read: most of a "today" or "yesterday" cohort's tickets haven't had
 # time to resolve yet, so Resolution Rate reads artificially LOW (censored -
@@ -200,8 +212,8 @@ def _entity_tat_rows(c: pd.DataFrame, mask: pd.Series, label: str,
                 (f"{v:.1f}h", None if immature else _tat_color(v, bm_tat))
     pad = INDENT * indent
     return [
-        {"label": f"{pad}{label} - Volume", "values": vol_values},
-        {"label": f"{pad}{label} - Median TAT", "values": tat_values},
+        {"label": f"{pad}{label} - Volume", "values": vol_values, "level": indent},
+        {"label": f"{pad}{label} - Median TAT", "values": tat_values, "level": indent},
     ]
 
 
@@ -231,32 +243,24 @@ def group_type_person_hierarchy_rows(c: pd.DataFrame, periods: list[tuple[str, p
     return rows
 
 
-def _dedupe_labels(labels: list[str]) -> list[str]:
-    """pandas' Styler.apply/.map refuses a non-unique index - the same
-    Sales Person can legitimately be a top performer under more than one
-    Group x Type (e.g. handling Callback Request in two different Groups),
-    producing an identical row label at the same indent level. Disambiguate
-    by appending zero-width spaces (invisible - the displayed text is
-    unchanged) rather than truncating or hiding a real row."""
-    seen: dict[str, int] = {}
-    out = []
-    for label in labels:
-        n = seen.get(label, 0)
-        seen[label] = n + 1
-        out.append(label + ("​" * n))
-    return out
-
-
-def build_matrix(rows: list[dict], periods: list[tuple[str, pd.Timestamp, pd.Timestamp]]) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Returns (display_df, color_df) - both indexed by row label, columned
-    by period label, same shape. display_df holds pre-formatted text;
-    color_df holds a CSS 'background-color: #xxxxxx' string or ''."""
-    labels = _dedupe_labels([r["label"] for r in rows])
+def build_matrix(rows: list[dict], periods: list[tuple[str, pd.Timestamp, pd.Timestamp]]
+                  ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Returns (display_df, color_df), same shape: a "Segment" column (the
+    row label, as real data - NOT the DataFrame index, since Streamlit's
+    dataframe grid doesn't render index-level Styler colors) followed by one
+    column per period. display_df holds pre-formatted text; color_df holds
+    a CSS 'background-color: ...' string or '' per cell, including the
+    Segment column - where a row dict carries a "level" key (0/1/2 =
+    Group/Type/Sales Person), the Segment cell is colored via LEVEL_COLOR;
+    otherwise it's uncolored."""
     period_labels = [p[0] for p in periods]
-    data = pd.DataFrame(index=labels, columns=period_labels, dtype=object)
-    colors = pd.DataFrame("", index=labels, columns=period_labels, dtype=object)
-    for label, r in zip(labels, rows):
-        for plabel, (txt, color) in r["values"].items():
-            data.loc[label, plabel] = txt
-            colors.loc[label, plabel] = f"background-color: {color}" if color else ""
+    data = pd.DataFrame({"Segment": [r["label"] for r in rows]})
+    colors = pd.DataFrame({"Segment": [LEVEL_COLOR.get(r.get("level"), "") for r in rows]})
+    for plabel in period_labels:
+        data[plabel] = [r["values"].get(plabel, (NO_DATA, None))[0] for r in rows]
+        colors[plabel] = [
+            (f"background-color: {r['values'].get(plabel, (None, None))[1]}"
+             if r["values"].get(plabel, (None, None))[1] else "")
+            for r in rows
+        ]
     return data, colors

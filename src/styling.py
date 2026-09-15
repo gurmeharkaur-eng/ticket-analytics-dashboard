@@ -136,10 +136,14 @@ def show_table(df: pd.DataFrame, pct_cols: list[str] | None = None, int_cols: li
 def show_matrix(data: pd.DataFrame, colors: pd.DataFrame, height: int | None = None) -> None:
     """Renders a pre-formatted (text-valued) matrix with a same-shape
     DataFrame of CSS background-color strings applied per cell - the
-    MIS-style time-period x metric/segment tables in trend_matrix.py."""
+    MIS-style time-period x metric/segment tables in trend_matrix.py. Colors
+    for the "Segment" label column (if present) come pre-baked into `colors`
+    by the caller (see trend_matrix.LEVEL_COLOR), since Streamlit's
+    dataframe grid only renders cell-level Styler colors, not index-level
+    ones - the label is a real column, not the DataFrame index."""
     styler = data.style.apply(lambda _: colors, axis=None)
     kwargs = {"height": height} if height is not None else {}
-    st.dataframe(styler, use_container_width=True, **kwargs)
+    st.dataframe(styler, hide_index=True, use_container_width=True, **kwargs)
 
 
 def color_legend() -> None:
