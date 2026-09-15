@@ -56,14 +56,7 @@ def _cached_load_and_compute(raw_bytes, raw_name, map_bytes, map_name,
     result = load_all(raw_buf, map_buf, team_data_buf, team_lists_buf, lsq_buf)
     computed = compute(result.raw, result.mapping, result.team_data, result.team_lists, result.lsq_data)
 
-    reps = set(result.mapping["_sales_person_norm"].dropna().unique().tolist())
-    if result.team_data is not None:
-        reps |= set(result.team_data["_sales_person_norm"].dropna().unique().tolist())
-    if result.team_lists is not None:
-        reps |= set(result.team_lists["_sales_person_norm"].dropna().unique().tolist())
-    reps = sorted(reps)
-
-    return result, computed, reps
+    return result, computed
 
 
 def _read_bytes(source):
@@ -120,7 +113,7 @@ lsq_name = getattr(lsq_source, "name", str(lsq_source)) if lsq_source is not Non
 
 with st.spinner("Reading, validating, and calculating..."):
     try:
-        load_result, computed_data, reps = _cached_load_and_compute(
+        load_result, computed_data = _cached_load_and_compute(
             _read_bytes(raw_source), raw_name, _read_bytes(map_source), map_name,
             _read_bytes(team_data_source), team_data_name, _read_bytes(team_lists_source), team_lists_name,
             _read_bytes(lsq_source), lsq_name,
@@ -133,6 +126,6 @@ for w in load_result.warnings:
     st.warning(w)
 
 report.render(
-    computed_data.df, computed_data.as_of, reps, load_result.mapping, load_result.raw,
+    computed_data.df, computed_data.as_of, load_result.mapping, load_result.raw,
     load_result.team_data, load_result.team_lists, load_result.lsq_data,
 )

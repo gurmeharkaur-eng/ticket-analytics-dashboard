@@ -65,55 +65,6 @@ def group_type_seller_table(c: pd.DataFrame, min_volume: int = MIN_SEGMENT_VOLUM
     return out.sort_values("Tickets", ascending=False).reset_index(drop=True)
 
 
-def top_sellers_for(gt_table: pd.DataFrame, group: str, type_: str, n: int = 3) -> pd.DataFrame:
-    """Sellers for one specific Group/Type, sorted by business impact - used
-    to nest sellers under a Group -> Type row in the hierarchy view."""
-    sub = gt_table[(gt_table["Group"] == group) & (gt_table["Type"] == type_)]
-    return sub.sort_values("Impact Score", ascending=False).head(n)
-
-
-def mine_seller_insights(c: pd.DataFrame, bm: Benchmark | None = None, top_n: int = 8) -> pd.DataFrame:
-    """Same finding shape as performance.mine_actionable_insights (Priority,
-    Area, Owner / Segment, Finding, Evidence, Impact, Recommended Action,
-    _impact) so the two lists can be concatenated directly. Only
-    High-volume underperformer sellers are mined as problems here - a
-    Low-volume outlier is real but explicitly not high-priority (see the
-    Status classification above), and Healthy/Typical sellers aren't findings."""
-    bm = bm or compute_benchmark(c)
-    gts = group_type_seller_table(c, bm=bm)
-    problems = gts[gts["Status"] == "High-volume underperformer"].sort_values("Impact Score", ascending=False)
-
-    rows = []
-    for _, row in problems.head(top_n).iterrows():
-        extra = int(round(row["Tickets"] * abs(row["RR vs Benchmark (pp)"])))
-        priority = "High Priority" if row["RR vs Benchmark (pp)"] <= -HIGH_PRIORITY_DEVIATION_PP else "Medium Priority"
-        rows.append({
-            "Priority": priority, "Area": "Seller",
-            "Owner / Segment": f"{row['Group']} -> {row['Type']} -> {row['SellerLabel']}",
-            "Finding": f"{row['SellerLabel']} ({row['Group']} -> {row['Type']}) is a high-volume "
-                       f"underperforming seller: {row['RR vs Benchmark (pp)'] * 100:+.1f}pp vs benchmark",
-            "Evidence": f"{row['Tickets']:,} tickets, {row['Resolution Rate']:.1%} resolution rate vs "
-                        f"{bm.resolution_rate:.1%} benchmark, {row['>24h']:,} tickets >24h TAT. "
-                        f"Sales Person: {row['SalesPerson']} (Team: {row['Team']}).",
-            "Impact": f"~{extra:,} tickets from this seller alone are backlogged beyond what the benchmark "
-                      f"rate would predict.",
-            "Recommended Action": "Pattern to investigate: this looks seller-specific (packaging, address "
-                                   "quality, process) rather than rep-specific if the same Sales Person "
-                                   "handles other healthy sellers in this segment - check the Group -> Type -> "
-                                   "Seller view for that comparison before escalating to the rep.",
-            "_impact": row["Impact Score"],
-        })
-    return pd.DataFrame(rows)
-
-
-def top_sellers_overall(c: pd.DataFrame, n: int = 12) -> list[str]:
-    """Top N seller labels by ticket volume (real sellers only - excludes the
-    No Seller ID / Unmapped Seller pseudo-categories), for trend-matrix rows
-    that need one row per seller regardless of Group/Type."""
-    real = c[c["SellerID"].notna()]
-    return real["SellerLabel"].value_counts().head(n).index.tolist()
-
-
 def seller_mapping_coverage(c: pd.DataFrame) -> dict:
     total = len(c)
     vc = c["MappingStatus"].value_counts()

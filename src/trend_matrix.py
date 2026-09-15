@@ -25,18 +25,6 @@ AMBER = "#FDE68A"
 GREEN = "#86EFAC"
 NO_DATA = "-"
 
-# Hierarchy-level color for the "Segment" label column (Group/Type/Sales
-# Person), independent of the per-cell performance colors. Streamlit's
-# dataframe grid only renders Styler cell-background styling, not pandas'
-# Styler.apply_index() - confirmed by testing - so this has to be a real
-# data column colored the same way the performance cells are, not an
-# index-styling trick.
-LEVEL_COLOR = {
-    0: "background-color: #1F2937; color: #FFFFFF; font-weight: 700",  # Group
-    1: "background-color: #DBEAFE; color: #1E3A8A; font-weight: 600",  # Type
-    2: "background-color: #EDE9FE; color: #5B21B6",                    # Sales Person
-}
-
 # Resolution Rate / In-TAT% / Avg TAT for the freshest 1-2 days are not a
 # fair read: most of a "today" or "yesterday" cohort's tickets haven't had
 # time to resolve yet, so Resolution Rate reads artificially LOW (censored -
@@ -161,7 +149,9 @@ def overall_matrix_rows(c: pd.DataFrame, periods: list[tuple[str, pd.Timestamp, 
 def segment_trend_rows(c: pd.DataFrame, dim_col: str, segment_labels: list[str],
                         periods: list[tuple[str, pd.Timestamp, pd.Timestamp]], bm: Benchmark) -> list[dict]:
     """Volume + Resolution Rate row pair per segment, for the given curated
-    label list (caller decides curation - top-N-by-volume plus flagged)."""
+    label list (caller decides curation - top-N-by-volume plus flagged).
+    Used for both the Group (HOD) and Type (L1) trend tables - `dim_col` is
+    generic, not tied to any one dimension."""
     vol: dict[str, dict] = {seg: {} for seg in segment_labels}
     rate: dict[str, dict] = {seg: {} for seg in segment_labels}
     for plabel, start, end in periods:
@@ -185,109 +175,16 @@ def segment_trend_rows(c: pd.DataFrame, dim_col: str, segment_labels: list[str],
     return rows
 
 
-_PSEUDO_SALES_PERSON = {"No Seller ID", "Unmapped Seller", "Unassigned Rep"}
-# A real Unicode non-breaking space, not the HTML entity "&nbsp;" - these row
-# labels go through Streamlit's dataframe grid (plain text), which doesn't
-# decode HTML the way st.markdown does, so a literal "&nbsp;" would show up
-# as 6 literal characters instead of an indent.
-INDENT = "    "
-
-
-def _entity_tat_rows(c: pd.DataFrame, mask: pd.Series, label: str,
-                      periods: list[tuple[str, pd.Timestamp, pd.Timestamp]],
-                      tat_col: str, bm_tat: float, indent: int) -> list[dict]:
-    """Volume + Median TAT row pair for one entity, already isolated by
-    `mask` (a Group, a Group x Type, or a Group x Type x Sales Person)."""
-    vol_values, tat_values = {}, {}
-    for plabel, start, end in periods:
-        sub = c[period_mask(c, start, end) & mask]
-        n = len(sub)
-        immature = plabel in IMMATURE_RATE_PERIODS
-        vol_values[plabel] = (f"{n:,}" if n else NO_DATA, None)
-        if n == 0:
-            tat_values[plabel] = (NO_DATA, None)
-        else:
-            v = sub[tat_col].median()
-            tat_values[plabel] = (NO_DATA, None) if pd.isna(v) else \
-                (f"{v:.1f}h", None if immature else _tat_color(v, bm_tat))
-    pad = INDENT * indent
-    return [
-        {"label": f"{pad}{label} - Volume", "values": vol_values, "level": indent},
-        {"label": f"{pad}{label} - Median TAT", "values": tat_values, "level": indent},
-    ]
-
-
-def group_summary_rows(c: pd.DataFrame, periods: list[tuple[str, pd.Timestamp, pd.Timestamp]],
-                        tat_col: str, bm_tat: float, group_labels: list[str]) -> list[dict]:
-    """One Volume + Median TAT row pair per Group - the always-visible
-    top-level summary. Types and Sales Persons underneath are drilled into
-    via per-Group / per-Type expanders in the UI (see type_summary_rows /
-    person_rows_for_type), not shown here, so this stays short and
-    readable regardless of how many Types or reps exist underneath."""
-    rows: list[dict] = []
-    for g in group_labels:
-        g_mask = c["Group"] == g
-        rows += _entity_tat_rows(c, g_mask, g, periods, tat_col, bm_tat, indent=0)
-    return rows
-
-
-def types_under_group(c: pd.DataFrame, group: str) -> list[str]:
-    """Types under one Group, ranked by ticket volume - drives which
-    per-Type expander to render, and in what order."""
-    return c.loc[c["Group"] == group, "Type"].value_counts().index.tolist()
-
-
-def type_summary_rows(c: pd.DataFrame, periods: list[tuple[str, pd.Timestamp, pd.Timestamp]],
-                       tat_col: str, bm_tat: float, group: str) -> list[dict]:
-    """One Volume + Median TAT row pair per Type under `group` - shown inside
-    that Group's expander. Every Type gets its own row (no "Other Types"
-    bucket needed: nothing is capped), so this always sums to the Group's
-    total shown one level up."""
-    rows: list[dict] = []
-    g_mask = c["Group"] == group
-    for t in types_under_group(c, group):
-        gt_mask = g_mask & (c["Type"] == t)
-        rows += _entity_tat_rows(c, gt_mask, t, periods, tat_col, bm_tat, indent=1)
-    return rows
-
-
-def person_rows_for_type(c: pd.DataFrame, periods: list[tuple[str, pd.Timestamp, pd.Timestamp]],
-                          tat_col: str, bm_tat: float, group: str, type_: str) -> list[dict]:
-    """One Volume + Median TAT row pair per named Sales Person working this
-    Group x Type - shown inside that Type's expander. Every real, named
-    Sales Person gets a row; ticket ownership with no resolvable person (No
-    Seller ID / Unmapped Seller / Unassigned Rep) rolls up into a single
-    "Other Reps" row since there's no name to list, so this Type's total
-    (shown one level up) always equals the sum of the rows shown here."""
-    gt_mask = (c["Group"] == group) & (c["Type"] == type_)
-    sp_counts = c.loc[gt_mask, "SalesPerson"].value_counts()
-    sp_counts = sp_counts[~sp_counts.index.isin(_PSEUDO_SALES_PERSON)]
-    persons = sp_counts.index.tolist()
-
-    rows: list[dict] = []
-    for sp in persons:
-        gtsp_mask = gt_mask & (c["SalesPerson"] == sp)
-        rows += _entity_tat_rows(c, gtsp_mask, sp, periods, tat_col, bm_tat, indent=2)
-
-    other_sp_mask = gt_mask & ~c["SalesPerson"].isin(persons)
-    if other_sp_mask.any():
-        rows += _entity_tat_rows(c, other_sp_mask, "Other Reps", periods, tat_col, bm_tat, indent=2)
-    return rows
-
-
 def build_matrix(rows: list[dict], periods: list[tuple[str, pd.Timestamp, pd.Timestamp]]
                   ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Returns (display_df, color_df), same shape: a "Segment" column (the
     row label, as real data - NOT the DataFrame index, since Streamlit's
     dataframe grid doesn't render index-level Styler colors) followed by one
     column per period. display_df holds pre-formatted text; color_df holds
-    a CSS 'background-color: ...' string or '' per cell, including the
-    Segment column - where a row dict carries a "level" key (0/1/2 =
-    Group/Type/Sales Person), the Segment cell is colored via LEVEL_COLOR;
-    otherwise it's uncolored."""
+    a CSS 'background-color: ...' string or '' per cell."""
     period_labels = [p[0] for p in periods]
     data = pd.DataFrame({"Segment": [r["label"] for r in rows]})
-    colors = pd.DataFrame({"Segment": [LEVEL_COLOR.get(r.get("level"), "") for r in rows]})
+    colors = pd.DataFrame({"Segment": ["" for _ in rows]})
     for plabel in period_labels:
         data[plabel] = [r["values"].get(plabel, (NO_DATA, None))[0] for r in rows]
         colors[plabel] = [

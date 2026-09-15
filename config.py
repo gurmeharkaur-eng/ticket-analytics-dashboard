@@ -113,20 +113,3 @@ OPPORTUNITY_DEVIATION_PP = 0.10     # >=10pp better -> Opportunity to replicate
 TAT_DEVIATION_FLAG_PCT = 0.30
 
 MAX_ACTIONABLE_INSIGHTS = 14
-
-# "Performance Drivers" tables are curated, not exhaustive: show the top N
-# segments by volume, unioned with any segment that's flagged even if it
-# falls outside the top N (a real problem should never be hidden just
-# because it's not top-volume). Full data stays available for reconciliation
-# in Data Quality and for full detail in Detailed Data.
-CURATED_TOP_N = 15
-
-# --- TAT concentration diagnostics -----------------------------------------
-# A segment is "disproportionately represented" in a slow-TAT bucket when its
-# share of that bucket exceeds its share of overall volume by this multiple
-# (e.g. 1.3x = 30% more of the slow bucket than its volume alone would predict).
-TAT_CONCENTRATION_RATIO_FLAG = 1.3
-# Minimum tickets a segment needs IN THE SLOW BUCKET before its concentration
-# ratio is trusted (avoids a 2-ticket segment showing a wild ratio).
-MIN_BUCKET_VOLUME_FOR_FLAG = 10
-MAX_TAT_INSIGHTS = 12

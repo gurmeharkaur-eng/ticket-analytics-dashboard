@@ -47,6 +47,19 @@ div[data-testid="stMetricLabel"] { font-size: 0.7rem; color: #6B7280; }
 .kf-card.opportunity { border-left-color:#2563EB; }
 .kf-label { font-size:0.66rem; font-weight:700; color:#6B7280; text-transform:uppercase; letter-spacing:.02em; }
 .kf-text { font-size:0.85rem; color:#111827; margin-top:2px; }
+
+.rank-list { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+.rank-row { display: flex; align-items: center; gap: 8px; font-size: 0.78rem; }
+.rank-label { width: 200px; flex-shrink: 0; color: #111827; font-weight: 600; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
+.rank-track { flex: 1 1 auto; background: #F3F4F6; border-radius: 3px; height: 14px; overflow: hidden; }
+.rank-fill { height: 100%; border-radius: 3px; }
+.rank-value { width: 130px; flex-shrink: 0; text-align: right; color: #374151;
+    font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.move-up { color: #166534; font-weight: 700; }
+.move-down { color: #991B1B; font-weight: 700; }
+.move-flat { color: #6B7280; }
 </style>
 """
 
@@ -136,14 +149,51 @@ def show_table(df: pd.DataFrame, pct_cols: list[str] | None = None, int_cols: li
 def show_matrix(data: pd.DataFrame, colors: pd.DataFrame, height: int | None = None) -> None:
     """Renders a pre-formatted (text-valued) matrix with a same-shape
     DataFrame of CSS background-color strings applied per cell - the
-    MIS-style time-period x metric/segment tables in trend_matrix.py. Colors
-    for the "Segment" label column (if present) come pre-baked into `colors`
-    by the caller (see trend_matrix.LEVEL_COLOR), since Streamlit's
-    dataframe grid only renders cell-level Styler colors, not index-level
-    ones - the label is a real column, not the DataFrame index."""
+    MIS-style time-period x metric/segment tables in trend_matrix.py.
+    Streamlit's dataframe grid only renders cell-level Styler colors, not
+    index-level ones, so the "Segment" row label is a real data column
+    (see trend_matrix.build_matrix), not the DataFrame index."""
     styler = data.style.apply(lambda _: colors, axis=None)
     kwargs = {"height": height} if height is not None else {}
     st.dataframe(styler, hide_index=True, use_container_width=True, **kwargs)
+
+
+def bar_ranking(rows: list[dict]) -> None:
+    """Compact horizontal bar-list ranking - a minimal, scannable
+    alternative to a full data table for a "best/worst performing X" view.
+    Each row: {"label": str, "value_text": str, "pct": float in 0..1 (bar
+    fill width), "color": hex string}."""
+    html = ['<div class="rank-list">']
+    for r in rows:
+        pct = max(0.0, min(1.0, r["pct"])) * 100
+        html.append(
+            f'<div class="rank-row">'
+            f'<div class="rank-label">{r["label"]}</div>'
+            f'<div class="rank-track"><div class="rank-fill" '
+            f'style="width:{pct:.1f}%;background:{r["color"]}"></div></div>'
+            f'<div class="rank-value">{r["value_text"]}</div>'
+            f'</div>'
+        )
+    html.append('</div>')
+    st.markdown("".join(html), unsafe_allow_html=True)
+
+
+def movement_badge(delta: float, higher_is_better: bool = True, min_meaningful: float = 0.005) -> str:
+    """A small colored movement label for 'this week vs last week'-style
+    deltas (e.g. Resolution Rate or Backlog %, both in fraction form). The
+    ARROW direction always reflects which way the metric actually moved;
+    the COLOR reflects whether that move is good or bad, which is why
+    `higher_is_better` is separate from the arrow - a rising Backlog % is
+    an up-arrow (it did go up) colored red (that's bad), not a down-arrow.
+    Anything under `min_meaningful` reads as flat/gray rather than a
+    false-precision +0.3pp in either color."""
+    if pd.isna(delta) or abs(delta) < min_meaningful:
+        return '<span class="move-flat">flat</span>'
+    arrow = "&#9650;" if delta > 0 else "&#9660;"
+    improved = (delta > 0) == higher_is_better
+    cls = "move-up" if improved else "move-down"
+    sign = "+" if delta > 0 else ""
+    return f'<span class="{cls}">{arrow} {sign}{delta * 100:.1f}pp</span>'
 
 
 def color_legend() -> None:
