@@ -29,6 +29,15 @@ div[data-testid="stMetricLabel"] { font-size: 0.7rem; color: #6B7280; }
 .kpi-label { font-size: 0.66rem; font-weight: 700; color: #6B7280; letter-spacing: .02em;
     text-transform: uppercase; margin-bottom: 2px; }
 .kpi-value { font-size: 1.25rem; font-weight: 700; color: #111827; line-height: 1.15; }
+.kpi-def { font-size: 0.66rem; color: #6B7280; margin-top: 3px; line-height: 1.25; }
+
+.status-badge { font-weight:700; padding:2px 8px; border-radius:4px; font-size:0.7rem; white-space:nowrap; }
+.status-Critical { background:#FEE2E2; color:#991B1B; }
+.status-Action-Required { background:#FFEDD5; color:#9A3412; }
+.status-Watch { background:#FEF3C7; color:#92400E; }
+.status-On-Track { background:#DCFCE7; color:#166534; }
+.status-Low-Sample-Validate { background:#F3F4F6; color:#4B5563; }
+.status-No-Baseline-Available { background:#F3F4F6; color:#4B5563; }
 
 .note { font-size: 0.75rem; color: #6B7280; font-style: italic; margin: 2px 0 8px 0; }
 .finding { font-size: 0.85rem; padding: 3px 0; }
@@ -75,8 +84,30 @@ def priority_badge(priority: str) -> str:
     return f'<span class="badge {cls}">{dot} {priority}</span>'
 
 
+def status_badge(label: str) -> str:
+    """Small colored label for the wireframe's status vocabulary (Critical
+    / Action Required / Watch / On Track / Low Sample - Validate / No
+    Baseline Available) - a restrained text badge, not a decorative icon."""
+    cls = "status-" + label.replace(" ", "-").replace("---", "-")
+    return f'<span class="status-badge {cls}">{label}</span>'
+
+
 def inject_custom_css() -> None:
     st.markdown(CSS, unsafe_allow_html=True)
+
+
+def kpi_row_with_defs(items: list[tuple[str, str, str]]) -> None:
+    """Like kpi_row, but each card also carries a one-line plain-language
+    definition underneath the value - used for the First Response /
+    Resolution TAT sections, where a bare number invites misreading.
+    items: list of (label, formatted_value, definition)."""
+    cards = "".join(
+        f'<div class="kpi-card"><div class="kpi-label">{label}</div>'
+        f'<div class="kpi-value">{value}</div>'
+        f'<div class="kpi-def">{definition}</div></div>'
+        for label, value, definition in items
+    )
+    st.markdown(f'<div class="kpi-row">{cards}</div>', unsafe_allow_html=True)
 
 
 def kpi_row(items: list[tuple[str, str]]) -> None:
@@ -122,21 +153,30 @@ def show_table(df: pd.DataFrame, pct_cols: list[str] | None = None, int_cols: li
     """Compact, formatted dataframe display. `row_colors`, if given, is a
     Series aligned to df's index holding a hex color (or falsy for no
     color) - the whole row is tinted so problem rows are scannable without
-    filtering them out of view."""
+    filtering them out of view.
+
+    Columns are pre-formatted to plain strings here (NaN -> "-") rather
+    than left as numbers with a pandas Styler `.format(..., na_rep="-")` -
+    confirmed the Styler itself renders NaN as "-" correctly, but
+    Streamlit's dataframe grid does not reliably respect a Styler's
+    `na_rep` for a NaN cell in a column that also has a `.format()` spec,
+    occasionally showing the literal string "None" instead. Pre-formatting
+    sidesteps that bridge entirely - the same reliable approach already
+    used for the MIS matrix tables (see trend_matrix.build_matrix)."""
     pct_cols = pct_cols or [c for c in df.columns if any(h in c for h in PCT_COLS_HINT)]
     int_cols = int_cols or []
     dec_cols = dec_cols or []
-    fmt = {}
+    display = df.copy()
     for c in pct_cols:
-        if c in df.columns:
-            fmt[c] = "{:.1%}"
+        if c in display.columns:
+            display[c] = display[c].map(lambda x: "-" if pd.isna(x) else f"{x * 100:.1f}%")
     for c in int_cols:
-        if c in df.columns:
-            fmt[c] = "{:,.0f}"
+        if c in display.columns:
+            display[c] = display[c].map(lambda x: "-" if pd.isna(x) else f"{x:,.0f}")
     for c in dec_cols:
-        if c in df.columns:
-            fmt[c] = "{:.1f}"
-    styler = df.style.format(fmt, na_rep="-")
+        if c in display.columns:
+            display[c] = display[c].map(lambda x: "-" if pd.isna(x) else f"{x:.1f}")
+    styler = display.style
     if row_colors is not None:
         def _row_style(row):
             color = row_colors.get(row.name)

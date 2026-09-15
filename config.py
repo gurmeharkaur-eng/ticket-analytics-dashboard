@@ -113,3 +113,18 @@ OPPORTUNITY_DEVIATION_PP = 0.10     # >=10pp better -> Opportunity to replicate
 TAT_DEVIATION_FLAG_PCT = 0.30
 
 MAX_ACTIONABLE_INSIGHTS = 14
+
+# --- TAT-specific analysis (distributions, diagnostics, status labels) -----
+# A Group/Type/combo needs at least this many VALID TAT tickets before its
+# average/median TAT, heatmap cell, or diagnostic bubble is trusted - a
+# separate, stricter threshold than MIN_SEGMENT_VOLUME (which gates
+# Resolution-Rate flagging) because a single extreme ticket swings an
+# average far more than it swings a backlog rate.
+TAT_LOW_SAMPLE_THRESHOLD = 30
+
+# Management TAT threshold used as the default reference line on diagnostic
+# charts and the default "breach" cutoff where the wireframe doesn't specify
+# a metric-specific one.
+TAT_MANAGEMENT_THRESHOLD_HOURS = 24
+RESOLUTION_BREACH_THRESHOLDS = [24, 72, 168]   # 168h = 7 days
+FR_BREACH_THRESHOLDS = [4, 8, 24]

@@ -23,7 +23,7 @@ from config import (
     HIGH_PRIORITY_DEVIATION_PP, MAX_ACTIONABLE_INSIGHTS, MEDIUM_PRIORITY_DEVIATION_PP,
     MIN_SEGMENT_VOLUME, OPPORTUNITY_DEVIATION_PP, TAT_DEVIATION_FLAG_PCT,
 )
-from src.aggregations import group_level_table, group_type_combo_table, type_level_table
+from src.aggregations import combo_ageing_over, group_level_table, group_type_combo_table, type_level_table
 
 
 @dataclass
@@ -185,3 +185,65 @@ def mine_actionable_insights(c: pd.DataFrame, bm: Benchmark | None = None) -> pd
              .sort_values(["_prank", "_impact"], ascending=[True, False]) \
              .drop(columns=["_prank"])
     return out.head(MAX_ACTIONABLE_INSIGHTS).reset_index(drop=True)
+
+
+def attribution_quality(c: pd.DataFrame) -> dict:
+    """Data-quality / accountability metrics the CEO/CRO view needs: what
+    share of tickets can't be reliably attributed to a Type or an owner,
+    and how many were re-opened - signals that undermine trust in every
+    other metric if left unmonitored."""
+    total = len(c)
+    unknown_type = int((c["Type"] == "Unknown").sum())
+    no_group = int((c["Group"] == "No Group").sum())
+    unattributed_owner = int(c["MappingStatus"].isin(["No Seller ID", "Unmapped Seller"]).sum())
+    reopened = int(c["Status"].str.upper().str.strip().isin(["RE-OPENED", "REOPENED"]).sum())
+    return {
+        "total": total,
+        "unknown_type": unknown_type, "unknown_type_rate": unknown_type / total if total else 0.0,
+        "no_group": no_group, "no_group_rate": no_group / total if total else 0.0,
+        "unattributed_owner": unattributed_owner,
+        "unattributed_owner_rate": unattributed_owner / total if total else 0.0,
+        "reopened": reopened, "reopened_rate": reopened / total if total else 0.0,
+    }
+
+
+def executive_problem_statement(c: pd.DataFrame, bm: Benchmark | None = None, n: int = 8
+                                 ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Top-N quantified Group x Type risks for the CEO/CRO 'Executive
+    Problem Statement' table, ranked by the same Impact Score (volume x
+    performance gap) used everywhere else in the app, enriched with each
+    combo's >7-day-aged backlog. Returned alongside a SEPARATE small table
+    of low-volume TAT outliers (below the minimum sample size to trust,
+    but with a large deviation) - real, but never mixed into the
+    structural-risk ranking, so a 2-ticket segment can't crowd out a
+    genuine 500-ticket problem."""
+    bm = bm or compute_benchmark(c)
+    gt = group_type_performance(c, bm).copy()
+    aged7 = combo_ageing_over(c, ("7-14 Days", "14-30 Days", ">30 Days"))
+    gt[">7-day backlog"] = [int(aged7.get((r.Group, r.Type), 0)) for r in gt.itertuples()]
+
+    flagged = gt[gt["Flag"] != ""].sort_values("Impact Score", ascending=False).head(n)
+    rows = []
+    for _, r in flagged.iterrows():
+        extra = int(round(r["Total Raised"] * abs(r["RR vs Benchmark (pp)"])))
+        if r["Flag"] == "Opportunity":
+            implication = (f"Best-practice pattern - {r['Resolution Rate']:.1%} resolution rate vs "
+                            f"{bm.resolution_rate:.1%} benchmark on {int(r['Total Raised']):,} tickets.")
+            decision = "Study what this queue is doing differently before generalizing to other segments."
+        else:
+            implication = (f"~{extra:,} tickets backlogged beyond what the benchmark rate would predict; "
+                            f"{r['>7-day backlog']:,} already aged past 7 days.")
+            decision = ("Review handling/process/staffing for this Group x Type queue; consider a dedicated "
+                         "clearance push or escalation path.")
+        rows.append({
+            "Priority": r["Flag"], "Group": r["Group"], "Type": r["Type"],
+            "Volume": int(r["Total Raised"]), "Backlog": int(r["Total Backlog"]),
+            "Backlog %": r["% Backlog"], "Avg FR TAT": r["Avg First Resp TAT"],
+            "Avg Resolution TAT": r["Avg Resolution TAT"], ">7-day backlog": r[">7-day backlog"],
+            "Business Implication": implication, "Decision Required": decision,
+        })
+    problem_df = pd.DataFrame(rows)
+
+    low_vol = gt[(~gt["Meets Min Volume"]) & (gt["RR vs Benchmark (pp)"].abs() >= HIGH_PRIORITY_DEVIATION_PP)] \
+        .sort_values("RR vs Benchmark (pp)")[["Group", "Type", "Total Raised", "Resolution Rate", "RR vs Benchmark (pp)"]]
+    return problem_df, low_vol.reset_index(drop=True)

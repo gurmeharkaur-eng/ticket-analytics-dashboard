@@ -1,12 +1,15 @@
 # Support Performance Dashboard (code-based)
 
-A single-page, no-tabs leadership dashboard built around a CRO -> HOD -> L1
-hierarchy: an executive topline view, a Group-performance view for HODs, and
-a Type-performance view for L1s, all on one continuously-scrolling page
-driven by a Group/Type filter pair at the top. Sales Person / Seller-level
-breakdowns are intentionally not part of this hierarchy - the dashboard's
-scope is Group and Type performance only (see "Why no Sales Person view"
-below).
+A single-page, no-tabs leadership dashboard built around a CEO/CRO -> HOD ->
+L1 -> L2 hierarchy: an executive topline view, a Group-performance view for
+HODs, a Type-performance view for L1 Group Heads, and a ticket-level action
+queue view for L2 Type Owners - all on one continuously-scrolling page
+driven by a Group/Type filter pair at the top (not separate tabs or
+workbook/page sheets - the point is to move from high-level to detail by
+scrolling and filtering, not by navigating to a different view). Sales
+Person / Seller-level breakdowns are intentionally not part of this
+hierarchy - the dashboard's scope is Group and Type performance only (see
+"Why no Sales Person view" below).
 
 ## What's here
 
@@ -19,19 +22,24 @@ ticket_analytics_webapp/
     calculations.py        # per-ticket computed fields, business-day TAT, seller ownership
     aggregations.py        # grouped tables (Group/Type/Sales Person/Backlog/Ageing/TAT)
     performance.py          # benchmarking, Group/Type ranking, Priority Actions mining
+    tat_analysis.py         # First Response / Resolution TAT distributions, breach counts,
+                             # funnel, diagnostics, heatmap data, status labels, What Changed
+    charts.py                # Plotly figure builders (distribution bar, heatmap, scatter, funnel, trend line)
     seller_analysis.py      # Group x Type x Seller cut (supplementary detail only)
     trend_matrix.py         # the D-1..M-3 time-period matrix engine + color-coding
     logic_validation.py     # documentation of corrections made to the brief's assumed logic
     data_quality.py         # reconciliation checks
     styling.py               # compact CSS + small UI helpers (KPI cards, bar rankings, matrix/row color)
-    report.py               # the CRO -> HOD -> L1 dashboard layout - UI only, no business logic
+    report.py               # the CEO/CRO -> HOD -> L1 -> L2 dashboard layout - UI only, no business logic
   sample_data/              # local-only convenience defaults (gitignored - see below)
   requirements.txt
   .streamlit/config.toml
 ```
 
 Business logic is fully separated from the UI: everything except `report.py`,
-`styling.py` and `app.py` is plain pandas code with no Streamlit calls.
+`styling.py`, `charts.py` and `app.py` is plain pandas code with no
+Streamlit calls (`charts.py` builds Plotly figures but renders nothing
+itself - `report.py` is the only place that calls Streamlit).
 
 ## Run it locally
 
@@ -70,30 +78,66 @@ benchmark every segment is compared against - that's always computed from
 the full unfiltered upload, so "+5pp vs benchmark" means the same thing
 whether or not you've drilled in.
 
-1. **CRO - Executive Overview** (always the top, always the highest level):
-   topline KPI cards (Total Tickets, Backlog %, Resolution Rate, Median
-   First Response / Resolution TAT) for the current selection; a
-   this-week-vs-last-week movement indicator for Resolution Rate and
-   Backlog %; a short "Needs Attention" list (the 2-3 most business-impactful
-   flagged segments - Groups when unfiltered, Types once a Group is
-   selected); a compact horizontal-bar Resolution Rate ranking across all
-   Groups; and the full D-1..M-3 Overall Performance trend matrix, collapsed
-   by default.
-2. **HOD - Group Performance**: best- and worst-performing Groups by
-   Resolution Rate vs benchmark, then the full Group ranking table
-   (Volume, Resolution Rate, deviation, Median TAT, priority flag - every
-   Group, row-colored red/amber/green), with a collapsed D-1..M-3 trend
-   matrix per Group underneath.
-3. **L1 - Type Performance**: the same shape as HOD, one level down - best/
-   worst Types, the full Type ranking table, and a collapsed Type trend
-   matrix - scoped to the selected Group if one is chosen, or across the
-   whole company otherwise.
-4. **Priority Actions** - Group x Type findings mined from the current
+1. **CEO/CRO - Executive Overview**: topline KPI cards (Total Tickets,
+   Backlog %, Resolution Rate, Avg + Median First Response / Resolution
+   TAT, Backlog >7 days, Unknown/blank Type rate, Re-Opened rate); a
+   **What Changed?** table (W-1 vs W-2, every headline metric with
+   Previous/Current/Change/%Change/Interpretation, row-colored, or
+   "Baseline not available" if a period has no data); a short **Needs
+   Attention** list (top flagged segments - Groups when unfiltered, Types
+   once a Group is selected); an **Executive Problem Statement** table
+   (top quantified Group x Type risks, with a separate small table for
+   real-but-low-volume outliers, never mixed into the main ranking); a
+   **Top 5 Only** panel (Types by volume / backlog / median Resolution TAT
+   / >72h breach - full detail lives in HOD/L1 below, not here); a compact
+   horizontal-bar Resolution Rate ranking across all Groups; and the full
+   D-1..M-3 Overall Performance trend matrix, collapsed by default.
+2. **End-to-End TAT Funnel**: ticket counts and conversion % through
+   raised -> valid First Response -> valid Resolution -> resolved <=24h /
+   <=72h -> still-unresolved backlog, so timestamp completeness and
+   resolution performance are visible in one chart.
+3. **First Response TAT** and **Resolution TAT** (two mirrored, fully
+   separate sections - a fast acknowledgement is not a fast resolution, so
+   they're never shown as two columns of one crowded table): Avg/Median/
+   valid-count/threshold-% KPI cards, each with a one-line plain-language
+   definition and a live data-confidence caption (coverage % and a
+   High/Moderate/Low label); the Group and Type with the highest
+   *meaningful* median TAT (>=30 valid tickets), tagged with a status badge
+   (Critical/Action Required/Watch/On Track/Low Sample - Validate/No
+   Baseline Available); a 7-bucket distribution bar; breach-threshold
+   cards (each expandable into the exact ticket list breaching it); a
+   monthly trend line (M-3..MTD, breaks rather than draws through a period
+   with <10 valid tickets); a Group x Type median-TAT heatmap (low-sample
+   cells marked `*`); and Average-vs-Median / Volume-vs-TAT diagnostic
+   scatter charts, toggleable between Group and Type.
+4. **Backlog Risk**: Open/New/Pending/Re-Opened composition, a backlog
+   ageing distribution bar, the oldest unresolved ticket, and a drill-down
+   to the 30 oldest - kept explicitly separate from the TAT sections above,
+   which only describe tickets that have already been responded to or
+   resolved.
+5. **HOD - Group Performance**: best/worst Groups, the full Group ranking
+   table (Volume, status split, Resolution Rate, Avg+Median TAT, aged
+   backlog, priority flag - every Group, row-colored), a collapsed trend
+   matrix, and a collapsed Group-level First Response / Resolution TAT
+   bucket control table.
+6. **L1 - Group Performance & TAT Control**: the same shape as HOD, one
+   level down (Type instead of Group) - scoped to the selected Group, or
+   company-wide if unfiltered.
+7. **Observed Patterns Associated with High TAT**: status mix,
+   attribution/mapping coverage, and timestamp completeness for the
+   current selection - titled to make clear these are measurable
+   correlates, not confirmed causes.
+8. **L2 - Type Owner: Ticket-Level Action Queues**: five live, sorted
+   ticket-list queues (Immediate Response, Ageing, Resolution Escalation,
+   Re-open Review, Classification), each with a real-time count and an
+   expandable drill-down - no invented Owner/Due-date fields, since
+   there's no source data for who's assigned or when something's due.
+9. **Priority Actions** - Group x Type findings mined from the current
    selection, ranked by business impact (volume affected x performance gap
    vs benchmark).
-5. Collapsed at the bottom: Data Quality reconciliation, a supplementary
-   Seller Detail table (see below), Logic Validation, full per-ticket detail
-   with CSV export.
+10. Collapsed at the bottom: Data Quality reconciliation, a supplementary
+    Seller Detail table (see below), Logic Validation, full per-ticket
+    detail with CSV export.
 
 ### Why no Sales Person / Seller view
 
@@ -105,7 +149,7 @@ job is to answer "which Groups and Types need attention," not "which rep is
 underperforming." The seller-level calculation (`seller_analysis.py`,
 Seller Name / Seller Company Name resolution) is still fully computed and
 available in the collapsed **Seller Detail** section for anyone who needs
-it, just not part of the CRO/HOD/L1 narrative.
+it, just not part of the CEO/CRO -> HOD -> L1 -> L2 narrative.
 
 ### Color rule
 
@@ -119,29 +163,52 @@ few already-resolved ones reads artificially fast (survivorship bias) -
 neither is a fair performance read yet. Raw counts (Volume, Backlog#)
 aren't subject to this and stay normally colored.
 
+### Status labels
+
+Every "highest meaningful TAT" callout carries one of six restrained status
+labels instead of a bare number: **Critical** (high volume + high backlog
+rate + TAT materially above benchmark), **Action Required** (high backlog
+rate OR TAT materially above benchmark), **Watch** (moderate backlog rate
+or TAT deviation), **On Track**, **Low Sample - Validate** (fewer than 30
+valid TAT tickets, or fewer than 20 tickets total - nothing else is
+trustworthy below this floor), and **No Baseline Available** (the
+benchmark itself couldn't be computed). Low Sample always takes priority
+over every other label.
+
 ## Key business rules
 
 - **Business-day TAT**: Sunday is excluded from First Response TAT and
-  Resolution TAT everywhere (rankings, medians, benchmarks, trend matrices),
-  on every day it touches the interval. A ticket created on a Sunday has its
-  clock start pushed to the following Monday 00:00:00; any Sunday *fully
-  spanned* between start and end has a full 24h removed; and if the
-  response/resolution itself happens *on* a Sunday, the hours from that
-  Sunday's midnight up to the actual response/resolution time are excluded
-  too, not just fully-spanned Sundays. Backlog Age (how long a ticket has
-  been *waiting*) is unaffected and stays pure calendar time.
+  Resolution TAT everywhere (rankings, medians, benchmarks, trend matrices,
+  distributions, heatmaps), on every day it touches the interval. A ticket
+  created on a Sunday has its clock start pushed to the following Monday
+  00:00:00; any Sunday *fully spanned* between start and end has a full
+  24h removed; and if the response/resolution itself happens *on* a
+  Sunday, the hours from that Sunday's midnight up to the actual
+  response/resolution time are excluded too, not just fully-spanned
+  Sundays. Backlog Age (how long a ticket has been *waiting*) is
+  unaffected and stays pure calendar time.
 - **Resolved In TAT %** = share of resolved tickets where
   `Resolved time <= Due by Time` (the ticket's own per-ticket SLA deadline,
   not a flat cutoff) - verified against the raw `Resolution status` field
   with 100% agreement on 7,297 tickets.
 - **Resolution Rate** = `1 - Backlog Rate`, the benchmarked "conversion %"
   metric used for Group/Type flagging and ranking. A segment needs >=20
-  tickets before it's compared to benchmark.
+  tickets before it's compared to benchmark for Resolution Rate purposes;
+  TAT-specific views (heatmap cells, diagnostic bubbles, the "highest
+  meaningful TAT" callout) use a stricter 30-valid-TAT-ticket floor, since
+  a single extreme ticket swings an average far more than it swings a
+  backlog rate.
 - **Backlog** = `Open + New + Pending + Re-Opened` (case/whitespace-
   insensitive; `Reopened` also recognized).
 - **Filter scoping**: the Group/Type picker changes WHICH tickets feed the
-  KPIs and ranking tables, but never changes the benchmark itself - so
-  narrowing to one Group doesn't make that Group trivially "average."
+  KPIs, ranking tables, and TAT sections, but never changes the benchmark
+  itself - so narrowing to one Group doesn't make that Group trivially
+  "average."
+- **Missing timestamps are excluded, never zeroed**: every TAT KPI states
+  its own valid-ticket count and coverage % (e.g. "7,288/10,039, 72.6%,
+  confidence: moderate") rather than silently computing an average over a
+  population that includes unresponded/unresolved tickets as if they were
+  instant.
 - **Seller ownership resolution priority** (feeds the Data Quality and
   Seller Detail sections only): Team Level Data's Seller ID -> Sales
   Person/Team wins where it covers a seller; the plain Sales Mapping file

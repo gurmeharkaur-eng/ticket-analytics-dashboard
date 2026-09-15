@@ -260,3 +260,55 @@ def tat_bucket_by_dim(c: pd.DataFrame, dim_col: str, bucket_col: str, order: lis
     ct = ct[TAT_BUCKETS].reindex(order).fillna(0).astype(int)
     ct["Valid TAT Count"] = ct.sum(axis=1)
     return ct.reset_index().rename(columns={dim_col: dim_col})
+
+
+def tat_bucket_pct_table(c: pd.DataFrame, dim_col: str, tat_col: str, bucket_col: str, order: list[str],
+                          extra_threshold_hours: float | None = None) -> pd.DataFrame:
+    """Count + % per TAT bucket, by Group or Type - the First Response /
+    Resolution TAT control tables (L1/L2 views). `extra_threshold_hours`
+    (e.g. 72 for Resolution TAT) adds one more ">Nh" count/% pair beyond
+    the standard bucket scheme, since Resolution TAT is also watched
+    against a longer escalation threshold that isn't one of the standard
+    buckets."""
+    ct = pd.crosstab(c[dim_col], c[bucket_col])
+    for b in TAT_BUCKETS:
+        if b not in ct.columns:
+            ct[b] = 0
+    ct = ct[TAT_BUCKETS].reindex(order).fillna(0).astype(int)
+    valid = ct.sum(axis=1)
+    out = pd.DataFrame(index=ct.index)
+    out["Valid Tickets"] = valid
+    for b in TAT_BUCKETS:
+        out[f"{b} #"] = ct[b]
+        out[f"{b} %"] = np.where(valid > 0, ct[b] / valid.replace(0, np.nan), 0.0)
+    if extra_threshold_hours is not None:
+        over = c.loc[c[tat_col] > extra_threshold_hours, dim_col].value_counts().reindex(order).fillna(0).astype(int)
+        label = f">{int(extra_threshold_hours)}h"
+        out[f"{label} #"] = over.values
+        out[f"{label} %"] = np.where(valid > 0, over.values / valid.replace(0, np.nan), 0.0)
+    return out.reset_index().rename(columns={dim_col: dim_col})
+
+
+def ageing_breakdown_by_dim(c: pd.DataFrame, dim_col: str, order: list[str]) -> pd.DataFrame:
+    """Backlog ageing bucket counts by Group or Type, rolled up into >7 /
+    >14 / >30 day counts - the ageing-risk column set used at HOD/L1/L2."""
+    bl = c[c["Backlog"] == 1]
+    ct = pd.crosstab(bl[dim_col], bl["AgeBucket"])
+    for b in AGE_BUCKETS:
+        if b not in ct.columns:
+            ct[b] = 0
+    ct = ct[AGE_BUCKETS].reindex(order).fillna(0).astype(int)
+    out = pd.DataFrame(index=ct.index)
+    out[">7 Days"] = ct[["7-14 Days", "14-30 Days", ">30 Days"]].sum(axis=1)
+    out[">14 Days"] = ct[["14-30 Days", ">30 Days"]].sum(axis=1)
+    out[">30 Days"] = ct[">30 Days"]
+    return out.reset_index().rename(columns={dim_col: dim_col})
+
+
+def combo_ageing_over(c: pd.DataFrame, age_buckets: tuple[str, ...]) -> pd.Series:
+    """Aged-backlog count per Group x Type combo for the given AGE_BUCKETS
+    subset (e.g. the 3 buckets >=7 days) - a (Group, Type)-indexed Series,
+    used to enrich the Group x Type risk ranking with an ageing column."""
+    bl = c[c["Backlog"] == 1]
+    aged = bl[bl["AgeBucket"].isin(age_buckets)]
+    return aged.groupby(["Group", "Type"], observed=True).size()
