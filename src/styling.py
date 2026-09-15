@@ -104,8 +104,12 @@ PCT_COLS_HINT = ("%", "pct", "Pct")
 
 
 def show_table(df: pd.DataFrame, pct_cols: list[str] | None = None, int_cols: list[str] | None = None,
-               dec_cols: list[str] | None = None, height: int | None = None, hide_index: bool = True) -> None:
-    """Compact, formatted dataframe display."""
+               dec_cols: list[str] | None = None, height: int | None = None, hide_index: bool = True,
+               row_colors: "pd.Series | None" = None) -> None:
+    """Compact, formatted dataframe display. `row_colors`, if given, is a
+    Series aligned to df's index holding a hex color (or falsy for no
+    color) - the whole row is tinted so problem rows are scannable without
+    filtering them out of view."""
     pct_cols = pct_cols or [c for c in df.columns if any(h in c for h in PCT_COLS_HINT)]
     int_cols = int_cols or []
     dec_cols = dec_cols or []
@@ -120,5 +124,30 @@ def show_table(df: pd.DataFrame, pct_cols: list[str] | None = None, int_cols: li
         if c in df.columns:
             fmt[c] = "{:.1f}"
     styler = df.style.format(fmt, na_rep="-")
+    if row_colors is not None:
+        def _row_style(row):
+            color = row_colors.get(row.name)
+            return [f"background-color: {color}" if color else "" for _ in row]
+        styler = styler.apply(_row_style, axis=1)
     kwargs = {"height": height} if height is not None else {}
     st.dataframe(styler, hide_index=hide_index, use_container_width=True, **kwargs)
+
+
+def show_matrix(data: pd.DataFrame, colors: pd.DataFrame, height: int | None = None) -> None:
+    """Renders a pre-formatted (text-valued) matrix with a same-shape
+    DataFrame of CSS background-color strings applied per cell - the
+    MIS-style time-period x metric/segment tables in trend_matrix.py."""
+    styler = data.style.apply(lambda _: colors, axis=None)
+    kwargs = {"height": height} if height is not None else {}
+    st.dataframe(styler, use_container_width=True, **kwargs)
+
+
+def color_legend() -> None:
+    st.markdown(
+        '<div style="font-size:0.75rem;display:flex;gap:14px;align-items:center;margin:2px 0 8px 0">'
+        '<span><span style="background:#FCA5A5;padding:1px 8px;border-radius:3px">&nbsp;</span> Critical</span>'
+        '<span><span style="background:#FDE68A;padding:1px 8px;border-radius:3px">&nbsp;</span> Attention / Watch</span>'
+        '<span><span style="background:#86EFAC;padding:1px 8px;border-radius:3px">&nbsp;</span> Healthy / Outperforming</span>'
+        '<span style="color:#6B7280">Uncolored = near benchmark or not enough data (shown as "-")</span>'
+        '</div>', unsafe_allow_html=True,
+    )

@@ -31,6 +31,8 @@ class Benchmark:
     resolution_rate: float
     avg_res_tat: float
     avg_fr_tat: float
+    median_res_tat: float
+    median_fr_tat: float
 
 
 def compute_benchmark(c: pd.DataFrame) -> Benchmark:
@@ -41,6 +43,8 @@ def compute_benchmark(c: pd.DataFrame) -> Benchmark:
         resolution_rate=1 - (backlog / total if total else 0.0),
         avg_res_tat=float(c["RESTAT"].mean()),
         avg_fr_tat=float(c["FRTAT"].mean()),
+        median_res_tat=float(c["RESTAT"].median()),
+        median_fr_tat=float(c["FRTAT"].median()),
     )
 
 

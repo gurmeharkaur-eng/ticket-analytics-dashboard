@@ -12,10 +12,46 @@ import numpy as np
 import pandas as pd
 
 from config import (
-    AGE_BUCKETS, AGE_BUCKET_BOUNDS, BACKLOG_STATUSES, COL_CREATED, COL_GROUP,
-    COL_INITIAL_RESPONSE, COL_RESOLVED, COL_SELLER_ID, COL_STATUS, COL_TICKET_ID,
+    AGE_BUCKETS, AGE_BUCKET_BOUNDS, BACKLOG_STATUSES, COL_CREATED, COL_DUE_BY, COL_GROUP,
+    COL_INITIAL_RESPONSE, COL_RESOLVED, COL_SELLER_ID, COL_STATUS, COL_SURVEY, COL_TICKET_ID,
     COL_TYPE, MAP_SELLER_NAME, NO_TEAM_LABEL, TAT_BUCKETS, TAT_BUCKET_BOUNDS,
 )
+
+
+SUNDAY_WEEKMASK = "1111110"  # numpy weekmask order: Mon Tue Wed Thu Fri Sat Sun - Sunday is the only day off
+
+
+def _business_hours_elapsed(start: pd.Series, end: pd.Series) -> pd.Series:
+    """Elapsed hours from start to end, excluding Sunday (the only
+    non-working day) entirely:
+      - if `start` itself falls on a Sunday, the effective start moves to
+        the following Monday 00:00:00 - the SLA clock doesn't start until a
+        working day.
+      - any further Sunday(s) the interval spans are excluded from the
+        elapsed-time count (a full 24h removed per Sunday calendar date
+        overlapped, using numpy's business-day counting with Sunday as the
+        only day off).
+    Negative or NaN results are left as-is for the caller to exclude, same
+    as the plain calendar-elapsed calculation."""
+    valid = start.notna() & end.notna()
+    eff_start = start.copy()
+    is_sun = start.dt.dayofweek == 6  # Monday=0 ... Sunday=6
+    eff_start[is_sun & valid] = start[is_sun & valid].dt.normalize() + pd.Timedelta(days=1)
+
+    raw_hours = (end - eff_start).dt.total_seconds() / 3600
+
+    start_dates = eff_start.dt.normalize().values.astype("datetime64[D]")
+    end_dates = end.dt.normalize().values.astype("datetime64[D]")
+    # np.busday_count requires begin <= end; same-day or invalid rows are
+    # masked out via `valid` anyway, but guard against a negative range
+    # blowing up busday_count by clipping end to start where it's smaller.
+    clipped_end = np.where(end_dates >= start_dates, end_dates, start_dates)
+    total_days = (clipped_end - start_dates).astype("timedelta64[D]").astype(int)
+    working_days = np.busday_count(start_dates, clipped_end, weekmask=SUNDAY_WEEKMASK)
+    sundays_spanned = total_days - working_days
+
+    business_hours = raw_hours - sundays_spanned * 24
+    return pd.Series(business_hours, index=start.index).where(valid)
 
 
 def _bucket(hours: pd.Series, bounds: list[float], labels: list[str]) -> pd.Series:
@@ -115,9 +151,17 @@ def compute(raw: pd.DataFrame, mapping: pd.DataFrame, team_data: pd.DataFrame | 
         c["SellerName"].notna(), seller_id_num.apply(lambda x: f"Seller {int(x)}" if pd.notna(x) else None))
     c["SellerLabel"] = c["SellerLabel"].where(c["SellerLabel"].notna(), c["MappingStatus"])
 
-    fr_hours = (raw[COL_INITIAL_RESPONSE] - raw[COL_CREATED]).dt.total_seconds() / 3600
+    # Business-day TAT: Sunday is a non-working day (see
+    # _business_hours_elapsed) - a ticket created on Sunday has its clock
+    # start pushed to Monday 00:00:00, and any Sunday the response/resolution
+    # window spans is excluded from the elapsed-hours count. This replaces
+    # plain calendar-elapsed time everywhere TAT is used (buckets, averages,
+    # medians, benchmarks) - Backlog Age (how long a ticket has been
+    # waiting) is unaffected and stays pure calendar time, since that's about
+    # elapsed wait, not work capacity.
+    fr_hours = _business_hours_elapsed(raw[COL_CREATED], raw[COL_INITIAL_RESPONSE])
     fr_hours = fr_hours.where(fr_hours >= 0)  # negative TAT excluded, not zeroed
-    res_hours = (raw[COL_RESOLVED] - raw[COL_CREATED]).dt.total_seconds() / 3600
+    res_hours = _business_hours_elapsed(raw[COL_CREATED], raw[COL_RESOLVED])
     res_hours = res_hours.where(res_hours >= 0)
     c["FRTAT"] = fr_hours
     c["RESTAT"] = res_hours
@@ -126,6 +170,32 @@ def compute(raw: pd.DataFrame, mapping: pd.DataFrame, team_data: pd.DataFrame | 
 
     status_norm = c["Status"].str.upper().str.strip()
     c["Backlog"] = status_norm.isin(BACKLOG_STATUSES).astype(int)
+
+    # Resolved-in-TAT: whether a ticket was resolved by its own per-ticket SLA
+    # deadline (Due by Time), not a flat hour cutoff. Verified against the raw
+    # 'Resolution status' field (100% agreement on 7,297 resolved tickets with
+    # both timestamps present) - see Logic Validation. NaN (not "") for
+    # tickets that aren't resolved yet, so it's excluded from rate
+    # calculations the same way FRTAT/RESTAT are.
+    if COL_DUE_BY in raw.columns:
+        resolved_present = raw[COL_RESOLVED].notna()
+        due_present = raw[COL_DUE_BY].notna()
+        in_tat = pd.Series(np.nan, index=raw.index, dtype="float64")
+        both = resolved_present & due_present
+        in_tat[both] = (raw.loc[both, COL_RESOLVED] <= raw.loc[both, COL_DUE_BY]).astype(float)
+        c["InTAT"] = in_tat
+    else:
+        c["InTAT"] = np.nan
+
+    # CSAT: parsed from the trailing "(Positive/Neutral/Negative)" label in
+    # the raw 'Survey results' text (e.g. "5 (Positive)"), not the leading
+    # numeric score, since Freshdesk's own numeric-to-sentiment mapping can
+    # vary by survey configuration - the text label is unambiguous.
+    if COL_SURVEY in raw.columns:
+        survey = raw[COL_SURVEY].astype("string")
+        c["SurveySentiment"] = survey.str.extract(r"\((Positive|Neutral|Negative)\)", expand=False)
+    else:
+        c["SurveySentiment"] = pd.Series(pd.array([None] * n, dtype="string"), index=raw.index)
 
     asof = as_of_date(raw[COL_CREATED])
     age_days = (asof - c["Created"]).dt.total_seconds() / 86400

@@ -1,84 +1,21 @@
-"""The single consolidated report - one continuous page, no tabs. Replaces
-the earlier multi-tab layout. Combines Group, Type, Sales Person, Seller and
-TAT analysis into one management-report information architecture:
-KPI strip -> Executive Summary -> Top 5 Problems -> Group -> Type -> Seller
-hierarchy -> TAT Analysis -> Seller Problem Table -> Key Actions, with
-Data Quality and Logic Validation demoted to collapsed sections at the
-bottom (still there, just not competing for attention).
+"""The single-page report - MIS matrix format: metrics/segments as rows,
+time periods (D-1..D-7, W-1..W-4, MTD, M-1..M-3) as columns, color-coded red
+/ amber / green against the same benchmark and thresholds used throughout
+the app. Replaces the earlier card-based diagnostic layout at the user's
+explicit direction, modeled on their own Freshdesk MIS report format with
+color-coding and our Group/Type/Sales Person/Seller cuts layered in.
 """
 from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
 
-from config import MIN_SEGMENT_VOLUME
-from src import aggregations as agg
 from src import data_quality as dq
 from src import performance as perf
 from src import seller_analysis as sa
-from src import tat_diagnostics as tatd
+from src import trend_matrix as tm
 from src.logic_validation import LOGIC_VALIDATION_ROWS
-from src.styling import fmt_hrs, fmt_int, fmt_pct, kpi_row, priority_badge, section, show_table
-
-SEVERITY_BADGE = {
-    "Critical": ("badge-high", "\U0001F534"),
-    "Attention": ("badge-medium", "\U0001F7E0"),
-    "Watch": ("badge-medium", "\U0001F7E1"),
-    "Healthy": ("badge-opportunity", "\U0001F7E2"),
-}
-
-
-def _severity_badge(label: str) -> str:
-    cls, dot = SEVERITY_BADGE.get(label, ("badge-medium", ""))
-    return f'<span class="badge {cls}">{dot} {label}</span>'
-
-
-def _all_problem_insights(c: pd.DataFrame, reps: list[str], bm) -> pd.DataFrame:
-    """Group x Type, Sales Rep, Sales Rep x Group, and Seller findings,
-    combined into one impact-ranked list. This is the shared pool that Top 5
-    Problems, Executive Summary and Key Actions all draw from, so the report
-    tells one consistent story rather than three separately-ranked lists."""
-    perf_insights = perf.mine_actionable_insights(c, reps, bm)
-    seller_insights = sa.mine_seller_insights(c, bm)
-    combined = pd.concat([perf_insights, seller_insights], ignore_index=True) if len(seller_insights) else perf_insights
-    if combined.empty:
-        return combined
-    priority_rank = {"High Priority": 0, "Medium Priority": 1, "Opportunity": 2}
-    combined = combined.assign(_prank=combined["Priority"].map(priority_rank)) \
-        .sort_values(["_prank", "_impact"], ascending=[True, False]).drop(columns="_prank")
-    return combined.reset_index(drop=True)
-
-
-def _classify_severity(all_insights: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    """Buckets the already-priority-ranked combined list into the four
-    report-level severity tiers - a display grouping of the same
-    Priority/Impact computation used everywhere else, not a new threshold."""
-    if all_insights.empty:
-        return {k: all_insights for k in ("Critical", "Attention", "Watch", "Healthy")}
-    high = all_insights[all_insights["Priority"] == "High Priority"]
-    medium = all_insights[all_insights["Priority"] == "Medium Priority"]
-    opportunity = all_insights[all_insights["Priority"] == "Opportunity"]
-    return {
-        "Critical": high.head(3),
-        "Attention": pd.concat([high.iloc[3:6], medium.head(2)]),
-        "Watch": medium.iloc[2:5],
-        "Healthy": opportunity.head(3),
-    }
-
-
-def _hierarchy_row(label: str, tickets, pct, avg_tat, backlog_pct, rr_dev, indent: int = 0) -> str:
-    flag = ""
-    if rr_dev is not None:
-        if rr_dev <= -0.10:
-            flag = "\U0001F534 "
-        elif rr_dev >= 0.10:
-            flag = "\U0001F7E2 "
-    pad = "&nbsp;&nbsp;&nbsp;&nbsp;" * indent
-    pct_txt = f" ({pct:.1%} of total)" if pct is not None else ""
-    dev_txt = f", {rr_dev * 100:+.1f}pp vs benchmark" if rr_dev is not None else ""
-    tat_txt = f"{avg_tat:.1f}h avg TAT" if pd.notna(avg_tat) else "no resolved tickets yet"
-    return (f'<div style="font-size:0.82rem;padding:2px 0">{pad}{flag}<b>{label}</b> - {tickets:,.0f} tickets'
-            f'{pct_txt} | {tat_txt} | {backlog_pct:.1%} backlog{dev_txt}</div>')
+from src.styling import color_legend, fmt_hrs, fmt_int, fmt_pct, kpi_row, section, show_matrix, show_table
 
 
 def render(c: pd.DataFrame, as_of: pd.Timestamp, reps: list[str], mapping: pd.DataFrame,
@@ -86,109 +23,112 @@ def render(c: pd.DataFrame, as_of: pd.Timestamp, reps: list[str], mapping: pd.Da
     bm = perf.compute_benchmark(c)
     total = len(c)
     coverage = sa.seller_mapping_coverage(c)
+    periods = tm.period_definitions(as_of)
+    pcoverage = tm.period_coverage(c, periods)
 
     # ---------------------------------------------------------------- Header --
     st.title("Support Performance Report")
-    period = f"{c['Created'].min():%d-%b-%Y} to {c['Created'].max():%d-%b-%Y}"
-    st.caption(f"Data as of **{as_of:%d-%b-%Y %H:%M}** | Report period: {period}")
+    period_str = f"{c['Created'].min():%d-%b-%Y} to {c['Created'].max():%d-%b-%Y}"
+    st.caption(f"Data as of **{as_of:%d-%b-%Y %H:%M}** | Raw data loaded covers: {period_str}")
     kpi_row([
         ("TOTAL TICKETS", fmt_int(total)),
         ("BACKLOG %", fmt_pct(bm.total_backlog / bm.total if bm.total else 0)),
         ("RESOLUTION RATE", fmt_pct(bm.resolution_rate)),
-        ("AVG RESOLUTION TAT (hrs)", fmt_hrs(bm.avg_res_tat)),
-        ("AVG FIRST RESP TAT (hrs)", fmt_hrs(bm.avg_fr_tat)),
+        ("MEDIAN RESOLUTION TAT (hrs)", fmt_hrs(bm.median_res_tat)),
+        ("MEDIAN FIRST RESP TAT (hrs)", fmt_hrs(bm.median_fr_tat)),
         ("TICKETS MAPPED TO A SELLER OWNER", fmt_pct(coverage["mapped_pct"])),
     ])
 
-    all_insights = _all_problem_insights(c, reps, bm)
-    tiers = _classify_severity(all_insights)
-
-    # ------------------------------------------------------- Executive Summary --
-    section("Executive Summary")
-    for tier in ("Critical", "Attention", "Watch", "Healthy"):
-        rows = tiers[tier]
-        if rows.empty:
-            continue
-        st.markdown(_severity_badge(tier), unsafe_allow_html=True)
-        for _, row in rows.iterrows():
-            st.markdown(f'<div style="font-size:0.82rem;padding:2px 0 6px 4px">{row["Finding"]}</div>',
-                        unsafe_allow_html=True)
-
-    # ----------------------------------------------------------- Top 5 Problems --
-    section("Top 5 Problems", "Ranked by business impact (volume affected x performance gap vs benchmark).")
-    problems = all_insights[all_insights["Priority"] != "Opportunity"].head(5)
-    if problems.empty:
-        st.caption("No segment currently crosses the minimum volume + deviation thresholds.")
-    for _, row in problems.iterrows():
+    color_legend()
+    empty_periods = [label for label, n in pcoverage.items() if n == 0]
+    if empty_periods:
         st.markdown(
-            f'{priority_badge(row["Priority"])}&nbsp;&nbsp;<span style="font-size:0.7rem;color:#6B7280;'
-            f'text-transform:uppercase;font-weight:700">{row["Area"]}</span>&nbsp;&nbsp;'
-            f'<b>{row["Owner / Segment"]}</b><br>'
-            f'<span style="font-size:0.8rem">{row["Finding"]}</span><br>'
-            f'<span style="font-size:0.78rem;color:#374151">{row["Evidence"]}</span>',
+            f'<div class="note">No tickets in the loaded raw data fall in: {", ".join(empty_periods)} - '
+            f'shown as "-", not a misleading 0%. Upload a longer trailing history to populate these; the '
+            f'table structure won\'t need to change.</div>',
             unsafe_allow_html=True,
         )
-        st.markdown("<hr style='margin:6px 0;border-color:#E5E7EB'>", unsafe_allow_html=True)
 
-    # --------------------------------------------------- Group -> Type -> Seller --
-    section("Group -> Type -> Seller", "Curated: top Groups by volume (plus any flagged Group even if smaller), "
-            "their top Types, and the Sellers driving each Type where volume is meaningful "
-            f"(>= {MIN_SEGMENT_VOLUME} tickets in that exact Group x Type x Seller cell).")
-    grp_perf = perf.group_rollup_performance(c, bm)
-    grp_curated = perf.curate(grp_perf, n=5)
-    gts = sa.group_type_seller_table(c, bm=bm)
+    # ------------------------------------------------------------- Overall Matrix --
+    section("Overall Performance - Time Period Trend")
+    st.markdown(
+        '<div class="note">D-1 and D-2 rate/TAT cells are shown uncolored on purpose: most of "today" and '
+        '"yesterday"\'s tickets haven\'t had time to resolve yet, so Resolution Rate reads artificially low '
+        'and Avg/Median TAT of the few already-resolved ones reads artificially fast - neither reflects '
+        'true performance yet. Volume/count cells are unaffected. TAT figures exclude Sunday (non-working '
+        'day) - see Logic Validation.</div>',
+        unsafe_allow_html=True,
+    )
+    overall_rows = tm.overall_matrix_rows(c, periods, bm)
+    data, colors = tm.build_matrix(overall_rows, periods)
+    show_matrix(data, colors)
+    csat = tm.csat_row(c, periods)
+    csat_data, csat_colors = tm.build_matrix([csat], periods)
+    show_matrix(csat_data, csat_colors)
+    st.caption("CSAT is shown unscored (no color) - survey response volume here is under 1% of tickets, "
+               "too thin to color-code per period without being misleading.")
 
-    for _, grow in grp_curated.iterrows():
-        st.markdown(_hierarchy_row(grow["Group"], grow["Total Raised"], grow["% of Total"],
-                                    grow["Avg Resolution TAT"], grow["% Backlog"], grow["RR vs Benchmark (pp)"]),
-                    unsafe_allow_html=True)
-        gt_perf = perf.group_type_performance(c, bm)
-        gt_this_group = gt_perf[gt_perf["Group"] == grow["Group"]]
-        gt_this_group_curated = perf.curate(gt_this_group, n=3)
-        for _, trow in gt_this_group_curated.iterrows():
-            st.markdown(_hierarchy_row(trow["Type"], trow["Total Raised"], trow["% of Group"],
-                                        trow["Avg Resolution TAT"], trow["% Backlog"], trow["RR vs Benchmark (pp)"],
-                                        indent=1), unsafe_allow_html=True)
-            sellers = sa.top_sellers_for(gts, grow["Group"], trow["Type"], n=3)
-            for _, srow in sellers.iterrows():
-                sp_note = f" | {srow['SalesPerson']} ({srow['Team']})"
-                st.markdown(_hierarchy_row(f"{srow['SellerLabel']}{sp_note}", srow["Tickets"], None,
-                                            srow["Avg Resolution TAT"], srow["Backlog %"],
-                                            srow["RR vs Benchmark (pp)"], indent=2), unsafe_allow_html=True)
-        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+    # --------------------------------------------------------------- Group Matrix --
+    section("Group Performance - Time Period Trend", "Volume + Resolution Rate per Group, curated to the "
+            "top Groups by volume plus any Group flagged elsewhere in the report even if smaller.")
+    grp_labels = perf.curate(perf.group_rollup_performance(c, bm), n=8)["Group"].tolist()
+    grp_rows = tm.segment_trend_rows(c, "Group", grp_labels, periods, bm)
+    gdata, gcolors = tm.build_matrix(grp_rows, periods)
+    show_matrix(gdata, gcolors, height=560)
 
-    # ------------------------------------------------------------ TAT Analysis --
-    section("TAT Analysis", "Resolution TAT bucket distribution - long-TAT buckets highlighted.")
-    res_bt = agg.tat_bucket_table(c, "RESBucket")
-    res_bt = res_bt.iloc[:-1].copy()  # drop the "VALID TAT TICKETS" summary row for this compact view
-    res_bt["Bucket"] = res_bt["Bucket"].apply(lambda b: ("\U0001F534 " if b in (">24h",) else
-                                                          "\U0001F7E0 " if b in ("20-24h", "16-20h") else "") + b)
-    show_table(res_bt, int_cols=["Ticket Count"], pct_cols=["% of Valid TAT Tickets"])
+    # ---------------------------------------------------------------- Type Matrix --
+    section("Type Performance - Time Period Trend", "Curated to the top Types by volume plus any flagged Type.")
+    typ_labels = perf.curate(perf.type_performance(c, bm), n=8)["Type"].tolist()
+    typ_rows = tm.segment_trend_rows(c, "Type", typ_labels, periods, bm)
+    tdata, tcolors = tm.build_matrix(typ_rows, periods)
+    show_matrix(tdata, tcolors, height=560)
 
-    # ------------------------------------------------------ Seller Problem Table --
-    section("Seller Problem Table", "Only sellers with meaningful volume in a given Group x Type. "
-            "High-volume underperformer = fix first; Low-volume outlier = real, but limited impact today.")
-    problem_sellers = gts[gts["Status"].isin(["High-volume underperformer", "Low-volume outlier"])] \
-        .sort_values("Impact Score", ascending=False).head(20)
-    if problem_sellers.empty:
-        st.caption("No seller currently meets the problem thresholds.")
+    # ----------------------------------------------------------- Sales Person Matrix --
+    section("Sales Person Performance - Time Period Trend", "Curated to the top reps by volume plus any rep "
+            "flagged elsewhere - watch for a rep whose Resolution Rate cell turns red/amber in a recent "
+            "period after being green earlier (or the reverse).")
+    sp_perf = perf.sales_performance(c, reps, bm)
+    sp_labels = perf.curate(sp_perf, n=10)["Sales Person"].tolist()
+    sp_rows = tm.segment_trend_rows(c, "SalesPerson", sp_labels, periods, bm)
+    spdata, spcolors = tm.build_matrix(sp_rows, periods)
+    show_matrix(spdata, spcolors, height=680)
+
+    # --------------------------------------------------------------- Seller Matrix --
+    section("Seller Performance - Time Period Trend", "Top sellers by ticket volume (real Seller IDs only).")
+    seller_labels = sa.top_sellers_overall(c, n=10)
+    seller_rows = tm.segment_trend_rows(c, "SellerLabel", seller_labels, periods, bm)
+    seldata, selcolors = tm.build_matrix(seller_rows, periods)
+    show_matrix(seldata, selcolors, height=680)
+
+    section("Seller Problem Table", f"Every Group x Type x Seller combination with >= {sa.MIN_SEGMENT_VOLUME} "
+            "tickets - not filtered down to a shortlist. Row color marks the problem: "
+            "red = High-volume underperformer (fix first), amber = Low-volume outlier (real, limited impact "
+            "today), green = Healthy. Uncolored = Typical / near benchmark.")
+    gts = sa.group_type_seller_table(c, bm=bm).sort_values("Impact Score", ascending=False).reset_index(drop=True)
+    if gts.empty:
+        st.caption(f"No Group x Type x Seller combination currently reaches {sa.MIN_SEGMENT_VOLUME} tickets.")
     else:
-        show_table(
-            problem_sellers[["Group", "Type", "SellerLabel", "SalesPerson", "Team", "Tickets",
-                              "Avg Resolution TAT", "Backlog %", ">16h", ">24h", "Status"]]
-            .rename(columns={"SellerLabel": "Seller"}),
-            int_cols=["Tickets", ">16h", ">24h"], pct_cols=["Backlog %"], dec_cols=["Avg Resolution TAT"],
-            height=420,
-        )
+        status_color = {"High-volume underperformer": tm.RED, "Low-volume outlier": tm.AMBER, "Healthy": tm.GREEN}
+        display = gts[["Group", "Type", "SellerLabel", "SalesPerson", "Team", "Tickets",
+                        "Avg Resolution TAT", "Backlog %", ">16h", ">24h", "Status"]] \
+            .rename(columns={"SellerLabel": "Seller"})
+        row_colors = gts["Status"].map(status_color)
+        show_table(display, int_cols=["Tickets", ">16h", ">24h"], pct_cols=["Backlog %"],
+                   dec_cols=["Avg Resolution TAT"], height=500, row_colors=row_colors)
 
-    # --------------------------------------------------------------- Key Actions --
-    section("Key Actions / Takeaways")
-    action_pool = all_insights[all_insights["Priority"] != "Opportunity"].head(6)
-    if action_pool.empty:
-        st.caption("No priority actions currently flagged.")
-    for i, (_, row) in enumerate(action_pool.iterrows(), start=1):
-        st.markdown(f'<div class="finding">{i}. <b>{row["Owner / Segment"]}</b> - {row["Recommended Action"]}</div>',
-                    unsafe_allow_html=True)
+    # ----------------------------------------------------------- Priority Actions --
+    section("Priority Actions", "Mined from the current snapshot, ranked by business impact "
+            "(volume affected x performance gap vs benchmark).")
+    perf_insights = perf.mine_actionable_insights(c, reps, bm)
+    seller_insights = sa.mine_seller_insights(c, bm)
+    all_insights = pd.concat([perf_insights, seller_insights], ignore_index=True) if len(seller_insights) else perf_insights
+    if not all_insights.empty:
+        priority_rank = {"High Priority": 0, "Medium Priority": 1, "Opportunity": 2}
+        all_insights = all_insights.assign(_prank=all_insights["Priority"].map(priority_rank)) \
+            .sort_values(["_prank", "_impact"], ascending=[True, False]).drop(columns=["_prank", "_impact"])
+        show_table(all_insights.drop(columns=["Owner / Segment"]), hide_index=True, height=420)
+    else:
+        st.caption("No segment currently meets the minimum volume + deviation thresholds for a flagged insight.")
 
     # ----------------------------------------------------- Collapsed detail --
     with st.expander("Data Quality - reconciliation checks"):

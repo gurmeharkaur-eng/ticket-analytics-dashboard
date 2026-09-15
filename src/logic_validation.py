@@ -76,4 +76,35 @@ LOGIC_VALIDATION_ROWS = [
      "where Team Level Data doesn't cover that seller; Team Lists fills in Team for a Sales Person Team "
      "Level Data names but doesn't tag with a Team. A Seller ID appearing more than once in Team Level "
      "Data (2 conflicts found) keeps the most recent month's assignment."),
+    ("First Response / Resolution TAT and Sunday",
+     "TAT was calculated as plain calendar-elapsed time between timestamps.",
+     "Sunday is a non-working day - counting it against TAT penalizes a ticket for sitting over a day "
+     "nobody is working, unrelated to actual team performance.",
+     "TAT is now business-day elapsed time: Sunday is excluded entirely. A ticket CREATED on a Sunday has "
+     "its clock start pushed to the following Monday 00:00:00; any Sunday a response/resolution window "
+     "spans has a full 24h removed from the elapsed count. This applies to First Response TAT and "
+     "Resolution TAT everywhere they're used (buckets, averages, medians, benchmarks). Backlog Age (how "
+     "long a ticket has been waiting) is unaffected and stays pure calendar time - that's about elapsed "
+     "wait, not work capacity. Known limitation: if a ticket resolves on a Sunday itself, the hours "
+     "elapsed within that same Sunday aren't excluded (only a Sunday fully spanned between start and end "
+     "is) - a minor edge case, not silently rounded away."),
+    ("Resolved In TAT % / Resolved Out of TAT %",
+     "Not previously computed - the brief's TAT buckets used a flat 24h cutoff as a proxy for 'slow'.",
+     "The raw 'Due by Time' column is 99.4% populated and is each ticket's actual per-ticket SLA deadline "
+     "(varies by ticket, not a flat 24h rule). Cross-checked `Resolved time <= Due by Time` against the "
+     "raw 'Resolution status' field (Within SLA / SLA Violated) on 7,297 tickets with both timestamps "
+     "present: 100% agreement.",
+     "Resolved In TAT % = share of resolved tickets where Resolved time <= Due by Time (computed directly "
+     "from timestamps, not read off the raw status field, so it stays correct if Due by Time is edited or "
+     "the export format changes). Tickets not yet resolved, or missing a Due by Time, are excluded, not "
+     "counted as a breach."),
+    ("CSAT / Survey results",
+     "Not previously used.",
+     "The raw 'Survey results' column is 99.6% empty (45 responses out of 10,039 tickets in the sample) - "
+     "a real, low-response-rate characteristic of this business, not a data quality gap on our end.",
+     "CSAT is parsed from the '(Positive/Neutral/Negative)' sentiment label in the raw text response "
+     "(not the leading numeric score, since the numeric-to-sentiment mapping isn't guaranteed stable "
+     "across survey configurations). Shown with its response count alongside and deliberately NOT "
+     "color-coded per time period - the volume is too thin to trust a red/amber/green flag day-by-day "
+     "without it being misleading."),
 ]

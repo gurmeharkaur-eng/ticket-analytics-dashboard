@@ -99,6 +99,14 @@ def mine_seller_insights(c: pd.DataFrame, bm: Benchmark | None = None, top_n: in
     return pd.DataFrame(rows)
 
 
+def top_sellers_overall(c: pd.DataFrame, n: int = 12) -> list[str]:
+    """Top N seller labels by ticket volume (real sellers only - excludes the
+    No Seller ID / Unmapped Seller pseudo-categories), for trend-matrix rows
+    that need one row per seller regardless of Group/Type."""
+    real = c[c["SellerID"].notna()]
+    return real["SellerLabel"].value_counts().head(n).index.tolist()
+
+
 def seller_mapping_coverage(c: pd.DataFrame) -> dict:
     total = len(c)
     vc = c["MappingStatus"].value_counts()
