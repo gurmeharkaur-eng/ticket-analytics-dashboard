@@ -118,8 +118,8 @@ def overall_matrix_rows(c: pd.DataFrame, periods: list[tuple[str, pd.Timestamp, 
         ("Resolved+Closed %", "resolution_rate", bm.resolution_rate, True),
         ("Resolved In TAT %", "in_tat_pct", bm_in_tat, True),
         ("Resolved Out of TAT %", "out_tat_pct", 1 - bm_in_tat if pd.notna(bm_in_tat) else np.nan, False),
-        ("Median Resolution TAT (hrs)", "median_res_tat", bm.median_res_tat, "tat"),
         ("Median First Response TAT (hrs)", "median_fr_tat", bm.median_fr_tat, "tat"),
+        ("Median Resolution TAT (hrs)", "median_res_tat", bm.median_res_tat, "tat"),
     ]
     rows = []
     for label, kind, bench, higher_is_better in rows_def:

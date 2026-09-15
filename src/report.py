@@ -34,8 +34,8 @@ def render(c: pd.DataFrame, as_of: pd.Timestamp, reps: list[str], mapping: pd.Da
         ("TOTAL TICKETS", fmt_int(total)),
         ("BACKLOG %", fmt_pct(bm.total_backlog / bm.total if bm.total else 0)),
         ("RESOLUTION RATE", fmt_pct(bm.resolution_rate)),
-        ("MEDIAN RESOLUTION TAT (hrs)", fmt_hrs(bm.median_res_tat)),
         ("MEDIAN FIRST RESP TAT (hrs)", fmt_hrs(bm.median_fr_tat)),
+        ("MEDIAN RESOLUTION TAT (hrs)", fmt_hrs(bm.median_res_tat)),
         ("TICKETS MAPPED TO A SELLER OWNER", fmt_pct(coverage["mapped_pct"])),
     ])
 
