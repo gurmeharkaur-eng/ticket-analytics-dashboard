@@ -24,14 +24,20 @@ SUNDAY_WEEKMASK = "1111110"  # numpy weekmask order: Mon Tue Wed Thu Fri Sat Sun
 
 def _business_hours_elapsed(start: pd.Series, end: pd.Series) -> pd.Series:
     """Elapsed hours from start to end, excluding Sunday (the only
-    non-working day) entirely:
+    non-working day) entirely - every Sunday hour is excluded regardless of
+    where in the interval it falls:
       - if `start` itself falls on a Sunday, the effective start moves to
         the following Monday 00:00:00 - the SLA clock doesn't start until a
         working day.
-      - any further Sunday(s) the interval spans are excluded from the
-        elapsed-time count (a full 24h removed per Sunday calendar date
-        overlapped, using numpy's business-day counting with Sunday as the
-        only day off).
+      - any Sunday(s) FULLY spanned between start and end are excluded (a
+        full 24h removed per Sunday calendar date overlapped, using numpy's
+        business-day counting with Sunday as the only day off).
+      - if `end` itself falls on a Sunday (the ticket was responded to /
+        resolved ON a Sunday), the hours from that Sunday's 00:00:00 up to
+        `end` are excluded too - np.busday_count treats its end argument as
+        exclusive, so a Sunday that IS the end date is never counted by the
+        "fully spanned" logic above and needs this separate term, otherwise
+        those hours would silently leak into the TAT.
     Negative or NaN results are left as-is for the caller to exclude, same
     as the plain calendar-elapsed calculation."""
     valid = start.notna() & end.notna()
@@ -51,7 +57,17 @@ def _business_hours_elapsed(start: pd.Series, end: pd.Series) -> pd.Series:
     working_days = np.busday_count(start_dates, clipped_end, weekmask=SUNDAY_WEEKMASK)
     sundays_spanned = total_days - working_days
 
-    business_hours = raw_hours - sundays_spanned * 24
+    # Partial Sunday AT THE END: eff_start is guaranteed never on a Sunday
+    # (handled above), so the only Sunday that can be only PARTIALLY inside
+    # the interval is the one containing `end` itself - subtract just the
+    # hours from that Sunday's midnight up to the actual end time.
+    end_is_sun = end.dt.dayofweek == 6
+    sunday_partial_hours = pd.Series(0.0, index=start.index)
+    sunday_partial_hours[end_is_sun & valid] = (
+        end[end_is_sun & valid] - end[end_is_sun & valid].dt.normalize()
+    ).dt.total_seconds() / 3600
+
+    business_hours = raw_hours - sundays_spanned * 24 - sunday_partial_hours
     return pd.Series(business_hours, index=start.index).where(valid)
 
 

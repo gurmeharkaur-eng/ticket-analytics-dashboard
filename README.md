@@ -70,16 +70,18 @@ pushed to GitHub or shown on a deployed link.
    using the real Due-by-Time deadline - see below), Median Resolution/First
    Response TAT, each across D-1..M-3, color-coded against the full-period
    benchmark.
-4. **Group → Type → Sales Person matrices (x2: First Response TAT and
-   Resolution TAT)** - one nested table, not three disconnected cuts: Type
-   is a subset of Group, and each Sales Person's work within a Group x Type
-   is a further subset, so it's shown that way (indented rows), curated at
-   each level (top Groups by volume, their top Types, the Sales Persons
-   driving each) with an **"Other Types" / "Other Reps"** roll-up row
-   capturing everything not broken out individually - a Group's total
-   always equals the sum of the rows shown under it, nothing is silently
-   missing from the curated view. A rep's cell turning red/amber in a
-   recent period after being green earlier is the signal to watch. Plus a
+4. **Group → Type → Sales Person drill-down (x2: First Response TAT and
+   Resolution TAT)** - Type is a subset of Group, and each Sales Person's
+   work within a Group x Type is a further subset, so it's navigated that
+   way instead of as one giant table or three disconnected cuts: a short
+   always-visible **Group summary** (top 6 Groups by volume), expand a
+   Group for its **Type summary**, expand a Type for its **Sales Person**
+   breakdown. Every Type and every named Sales Person gets its own row once
+   expanded - no hidden "Other" bucket except **"Other Reps"**, which rolls
+   up tickets with no resolvable owner (No Seller ID / Unmapped Seller)
+   since there's no name to list. Each level's total always equals the sum
+   of the rows one level down. A rep's cell turning red/amber in a recent
+   period after being green earlier is the signal to watch. Plus a
    **Seller matrix** (Volume + Resolution Rate, top sellers by volume).
 5. **Seller Problem Table** - every Group x Type x Seller combination with
    >=20 tickets, **not filtered down to a shortlist** - the whole table,
@@ -107,11 +109,14 @@ colored.
 ## Key business rules
 
 - **Business-day TAT**: Sunday is excluded from First Response TAT and
-  Resolution TAT everywhere (buckets, averages, medians, benchmarks). A
-  ticket created on a Sunday has its clock start pushed to the following
-  Monday 00:00:00; any Sunday a response/resolution window spans has a full
-  24h removed. Backlog Age (how long a ticket has been *waiting*) is
-  unaffected and stays pure calendar time.
+  Resolution TAT everywhere (buckets, averages, medians, benchmarks), on
+  every day it touches the interval. A ticket created on a Sunday has its
+  clock start pushed to the following Monday 00:00:00; any Sunday *fully
+  spanned* between start and end has a full 24h removed; and if the
+  response/resolution itself happens *on* a Sunday, the hours from that
+  Sunday's midnight up to the actual response/resolution time are excluded
+  too, not just fully-spanned Sundays. Backlog Age (how long a ticket has
+  been *waiting*) is unaffected and stays pure calendar time.
 - **Resolved In TAT %** = share of resolved tickets where
   `Resolved time <= Due by Time` (the ticket's own per-ticket SLA deadline,
   not a flat cutoff) - verified against the raw `Resolution status` field

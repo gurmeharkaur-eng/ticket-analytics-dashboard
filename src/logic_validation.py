@@ -80,14 +80,14 @@ LOGIC_VALIDATION_ROWS = [
      "TAT was calculated as plain calendar-elapsed time between timestamps.",
      "Sunday is a non-working day - counting it against TAT penalizes a ticket for sitting over a day "
      "nobody is working, unrelated to actual team performance.",
-     "TAT is now business-day elapsed time: Sunday is excluded entirely. A ticket CREATED on a Sunday has "
-     "its clock start pushed to the following Monday 00:00:00; any Sunday a response/resolution window "
-     "spans has a full 24h removed from the elapsed count. This applies to First Response TAT and "
-     "Resolution TAT everywhere they're used (buckets, averages, medians, benchmarks). Backlog Age (how "
-     "long a ticket has been waiting) is unaffected and stays pure calendar time - that's about elapsed "
-     "wait, not work capacity. Known limitation: if a ticket resolves on a Sunday itself, the hours "
-     "elapsed within that same Sunday aren't excluded (only a Sunday fully spanned between start and end "
-     "is) - a minor edge case, not silently rounded away."),
+     "TAT is now business-day elapsed time: Sunday is excluded entirely, on every day it touches the "
+     "interval. A ticket CREATED on a Sunday has its clock start pushed to the following Monday "
+     "00:00:00; any Sunday FULLY spanned between start and end has a full 24h removed; and if a ticket's "
+     "response/resolution TIME ITSELF falls on a Sunday (the end of the interval), the hours from that "
+     "Sunday's midnight up to the actual response/resolution time are removed too - not just fully "
+     "spanned Sundays. This applies to First Response TAT and Resolution TAT everywhere they're used "
+     "(buckets, averages, medians, benchmarks). Backlog Age (how long a ticket has been waiting) is "
+     "unaffected and stays pure calendar time - that's about elapsed wait, not work capacity."),
     ("Resolved In TAT % / Resolved Out of TAT %",
      "Not previously computed - the brief's TAT buckets used a flat 24h cutoff as a proxy for 'slow'.",
      "The raw 'Due by Time' column is 99.4% populated and is each ticket's actual per-ticket SLA deadline "

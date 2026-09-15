@@ -66,24 +66,39 @@ def render(c: pd.DataFrame, as_of: pd.Timestamp, reps: list[str], mapping: pd.Da
 
     # ----------------------------------------------- Group -> Type -> Sales Person --
     grp_labels = perf.curate(perf.group_rollup_performance(c, bm), n=6)["Group"].tolist()
+
+    def _hierarchy_section(tat_col: str, bm_tat: float, key_prefix: str) -> None:
+        summary_rows = tm.group_summary_rows(c, periods, tat_col, bm_tat, grp_labels)
+        sdata, scolors = tm.build_matrix(summary_rows, periods)
+        show_matrix(sdata, scolors)
+        st.caption("Segment color: dark = Group. Expand a Group below for its Type breakdown, "
+                   "then a Type for its Sales Person breakdown.")
+        for g in grp_labels:
+            with st.expander(g, key=f"{key_prefix}_grp_{g}"):
+                type_rows = tm.type_summary_rows(c, periods, tat_col, bm_tat, g)
+                tdata, tcolors = tm.build_matrix(type_rows, periods)
+                show_matrix(tdata, tcolors)
+                for t in tm.types_under_group(c, g):
+                    with st.expander(t, key=f"{key_prefix}_type_{g}_{t}"):
+                        person_rows = tm.person_rows_for_type(c, periods, tat_col, bm_tat, g, t)
+                        if not person_rows:
+                            st.caption("No Sales Person breakdown available for this Type.")
+                            continue
+                        pdata, pcolors = tm.build_matrix(person_rows, periods)
+                        show_matrix(pdata, pcolors)
+
     section("Group -> Type -> Sales Person: First Response TAT - Time Period Trend",
-            "One table, not three: Type is a subset of Group, and each Sales Person's work within a Group x "
-            "Type is a further subset - shown nested rather than as three disconnected cuts. Groups are "
-            "curated to the top 6 by volume, but every Type under a shown Group and every named Sales Person "
-            "under a Type gets its own row - no hidden \"Other\" bucket. The one exception is \"Other Reps\": "
-            "tickets with no resolvable owner (No Seller ID / Unmapped Seller) roll up there since there's no "
-            "person to list, so a Group's total always equals the sum of the rows shown under it.")
-    fr_rows = tm.group_type_person_hierarchy_rows(c, periods, "FRTAT", bm.median_fr_tat, grp_labels)
-    frdata, frcolors = tm.build_matrix(fr_rows, periods)
-    show_matrix(frdata, frcolors, height=680)
-    st.caption("Segment color: dark = Group, blue = Type, purple = Sales Person.")
+            "Type is a subset of Group, and each Sales Person's work within a Group x Type is a further "
+            "subset - shown as expandable drill-downs rather than one giant table or three disconnected "
+            "cuts. Groups are curated to the top 6 by volume; every Type and every named Sales Person "
+            "underneath gets its own row once expanded - no hidden \"Other\" bucket except \"Other Reps\", "
+            "which rolls up tickets with no resolvable owner (No Seller ID / Unmapped Seller) since there's "
+            "no name to list. Each level's total always equals the sum of the rows one level down.")
+    _hierarchy_section("FRTAT", bm.median_fr_tat, "fr")
 
     section("Group -> Type -> Sales Person: Resolution TAT - Time Period Trend",
-            "Same hierarchy, Resolution TAT instead of First Response TAT.")
-    res_rows = tm.group_type_person_hierarchy_rows(c, periods, "RESTAT", bm.median_res_tat, grp_labels)
-    resdata, rescolors = tm.build_matrix(res_rows, periods)
-    show_matrix(resdata, rescolors, height=680)
-    st.caption("Segment color: dark = Group, blue = Type, purple = Sales Person.")
+            "Same drill-down, Resolution TAT instead of First Response TAT.")
+    _hierarchy_section("RESTAT", bm.median_res_tat, "res")
 
     # --------------------------------------------------------------- Seller Matrix --
     section("Seller Performance - Time Period Trend", "Top sellers by ticket volume (real Seller IDs only).")

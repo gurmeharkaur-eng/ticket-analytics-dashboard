@@ -217,50 +217,61 @@ def _entity_tat_rows(c: pd.DataFrame, mask: pd.Series, label: str,
     ]
 
 
-def group_type_person_hierarchy_rows(c: pd.DataFrame, periods: list[tuple[str, pd.Timestamp, pd.Timestamp]],
-                                      tat_col: str, bm_tat: float, group_labels: list[str],
-                                      top_types_per_group: int | None = None,
-                                      top_persons_per_combo: int | None = None) -> list[dict]:
-    """Group -> Type -> Sales Person, ALL IN ONE table (Type is a subset of
-    Group; each Sales Person's work within a Group x Type is a further
-    subset). Every Type under each shown Group, and every named Sales Person
-    under each Type, gets its own row by default (top_types_per_group /
-    top_persons_per_combo = None) - no hidden "Other" bucket, every number
-    on screen is a real, individually-visible segment. Passing an int caps
-    each level to the top-N by volume instead, with a "Other Types" /
-    "Other Reps" roll-up row for the remainder so a parent row's total still
-    always equals the sum of its visible children. The one thing always
-    rolled up regardless is ticket ownership that isn't a real named person
-    (No Seller ID / Unmapped Seller / Unassigned Rep) - shown as "Other
-    Reps" since there's no person to list. Reused for both First Response
-    TAT and Resolution TAT by passing a different `tat_col`/`bm_tat`."""
+def group_summary_rows(c: pd.DataFrame, periods: list[tuple[str, pd.Timestamp, pd.Timestamp]],
+                        tat_col: str, bm_tat: float, group_labels: list[str]) -> list[dict]:
+    """One Volume + Median TAT row pair per Group - the always-visible
+    top-level summary. Types and Sales Persons underneath are drilled into
+    via per-Group / per-Type expanders in the UI (see type_summary_rows /
+    person_rows_for_type), not shown here, so this stays short and
+    readable regardless of how many Types or reps exist underneath."""
     rows: list[dict] = []
     for g in group_labels:
         g_mask = c["Group"] == g
         rows += _entity_tat_rows(c, g_mask, g, periods, tat_col, bm_tat, indent=0)
+    return rows
 
-        type_counts = c.loc[g_mask, "Type"].value_counts()
-        types_to_show = type_counts.index.tolist() if top_types_per_group is None \
-            else type_counts.head(top_types_per_group).index.tolist()
-        for t in types_to_show:
-            gt_mask = g_mask & (c["Type"] == t)
-            rows += _entity_tat_rows(c, gt_mask, t, periods, tat_col, bm_tat, indent=1)
 
-            sp_counts = c.loc[gt_mask, "SalesPerson"].value_counts()
-            sp_counts = sp_counts[~sp_counts.index.isin(_PSEUDO_SALES_PERSON)]
-            persons_to_show = sp_counts.index.tolist() if top_persons_per_combo is None \
-                else sp_counts.head(top_persons_per_combo).index.tolist()
-            for sp in persons_to_show:
-                gtsp_mask = gt_mask & (c["SalesPerson"] == sp)
-                rows += _entity_tat_rows(c, gtsp_mask, sp, periods, tat_col, bm_tat, indent=2)
+def types_under_group(c: pd.DataFrame, group: str) -> list[str]:
+    """Types under one Group, ranked by ticket volume - drives which
+    per-Type expander to render, and in what order."""
+    return c.loc[c["Group"] == group, "Type"].value_counts().index.tolist()
 
-            other_sp_mask = gt_mask & ~c["SalesPerson"].isin(persons_to_show)
-            if other_sp_mask.any():
-                rows += _entity_tat_rows(c, other_sp_mask, "Other Reps", periods, tat_col, bm_tat, indent=2)
 
-        other_type_mask = g_mask & ~c["Type"].isin(types_to_show)
-        if other_type_mask.any():
-            rows += _entity_tat_rows(c, other_type_mask, "Other Types", periods, tat_col, bm_tat, indent=1)
+def type_summary_rows(c: pd.DataFrame, periods: list[tuple[str, pd.Timestamp, pd.Timestamp]],
+                       tat_col: str, bm_tat: float, group: str) -> list[dict]:
+    """One Volume + Median TAT row pair per Type under `group` - shown inside
+    that Group's expander. Every Type gets its own row (no "Other Types"
+    bucket needed: nothing is capped), so this always sums to the Group's
+    total shown one level up."""
+    rows: list[dict] = []
+    g_mask = c["Group"] == group
+    for t in types_under_group(c, group):
+        gt_mask = g_mask & (c["Type"] == t)
+        rows += _entity_tat_rows(c, gt_mask, t, periods, tat_col, bm_tat, indent=1)
+    return rows
+
+
+def person_rows_for_type(c: pd.DataFrame, periods: list[tuple[str, pd.Timestamp, pd.Timestamp]],
+                          tat_col: str, bm_tat: float, group: str, type_: str) -> list[dict]:
+    """One Volume + Median TAT row pair per named Sales Person working this
+    Group x Type - shown inside that Type's expander. Every real, named
+    Sales Person gets a row; ticket ownership with no resolvable person (No
+    Seller ID / Unmapped Seller / Unassigned Rep) rolls up into a single
+    "Other Reps" row since there's no name to list, so this Type's total
+    (shown one level up) always equals the sum of the rows shown here."""
+    gt_mask = (c["Group"] == group) & (c["Type"] == type_)
+    sp_counts = c.loc[gt_mask, "SalesPerson"].value_counts()
+    sp_counts = sp_counts[~sp_counts.index.isin(_PSEUDO_SALES_PERSON)]
+    persons = sp_counts.index.tolist()
+
+    rows: list[dict] = []
+    for sp in persons:
+        gtsp_mask = gt_mask & (c["SalesPerson"] == sp)
+        rows += _entity_tat_rows(c, gtsp_mask, sp, periods, tat_col, bm_tat, indent=2)
+
+    other_sp_mask = gt_mask & ~c["SalesPerson"].isin(persons)
+    if other_sp_mask.any():
+        rows += _entity_tat_rows(c, other_sp_mask, "Other Reps", periods, tat_col, bm_tat, indent=2)
     return rows
 
 
