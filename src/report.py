@@ -68,8 +68,11 @@ def render(c: pd.DataFrame, as_of: pd.Timestamp, reps: list[str], mapping: pd.Da
     grp_labels = perf.curate(perf.group_rollup_performance(c, bm), n=6)["Group"].tolist()
     section("Group -> Type -> Sales Person: First Response TAT - Time Period Trend",
             "One table, not three: Type is a subset of Group, and each Sales Person's work within a Group x "
-            "Type is a further subset - shown nested rather than as three disconnected cuts. Curated: top "
-            "Groups by volume, their top Types, and the Sales Persons driving each Type.")
+            "Type is a further subset - shown nested rather than as three disconnected cuts. Groups are "
+            "curated to the top 6 by volume, but every Type under a shown Group and every named Sales Person "
+            "under a Type gets its own row - no hidden \"Other\" bucket. The one exception is \"Other Reps\": "
+            "tickets with no resolvable owner (No Seller ID / Unmapped Seller) roll up there since there's no "
+            "person to list, so a Group's total always equals the sum of the rows shown under it.")
     fr_rows = tm.group_type_person_hierarchy_rows(c, periods, "FRTAT", bm.median_fr_tat, grp_labels)
     frdata, frcolors = tm.build_matrix(fr_rows, periods)
     show_matrix(frdata, frcolors, height=680)

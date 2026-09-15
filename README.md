@@ -75,9 +75,12 @@ pushed to GitHub or shown on a deployed link.
    is a subset of Group, and each Sales Person's work within a Group x Type
    is a further subset, so it's shown that way (indented rows), curated at
    each level (top Groups by volume, their top Types, the Sales Persons
-   driving each). A rep's cell turning red/amber in a recent period after
-   being green earlier is the signal to watch. Plus a **Seller matrix**
-   (Volume + Resolution Rate, top sellers by volume).
+   driving each) with an **"Other Types" / "Other Reps"** roll-up row
+   capturing everything not broken out individually - a Group's total
+   always equals the sum of the rows shown under it, nothing is silently
+   missing from the curated view. A rep's cell turning red/amber in a
+   recent period after being green earlier is the signal to watch. Plus a
+   **Seller matrix** (Volume + Resolution Rate, top sellers by volume).
 5. **Seller Problem Table** - every Group x Type x Seller combination with
    >=20 tickets, **not filtered down to a shortlist** - the whole table,
    with the row itself colored (red/amber/green) so problems are scannable

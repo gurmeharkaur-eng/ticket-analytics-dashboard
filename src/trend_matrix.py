@@ -219,27 +219,48 @@ def _entity_tat_rows(c: pd.DataFrame, mask: pd.Series, label: str,
 
 def group_type_person_hierarchy_rows(c: pd.DataFrame, periods: list[tuple[str, pd.Timestamp, pd.Timestamp]],
                                       tat_col: str, bm_tat: float, group_labels: list[str],
-                                      top_types_per_group: int = 2, top_persons_per_combo: int = 2) -> list[dict]:
+                                      top_types_per_group: int | None = None,
+                                      top_persons_per_combo: int | None = None) -> list[dict]:
     """Group -> Type -> Sales Person, ALL IN ONE table (Type is a subset of
     Group; each Sales Person's work within a Group x Type is a further
-    subset) - curated at each level (top by volume) to keep the table
-    bounded. Reused for both First Response TAT and Resolution TAT by
-    passing a different `tat_col`/`bm_tat`."""
+    subset). Every Type under each shown Group, and every named Sales Person
+    under each Type, gets its own row by default (top_types_per_group /
+    top_persons_per_combo = None) - no hidden "Other" bucket, every number
+    on screen is a real, individually-visible segment. Passing an int caps
+    each level to the top-N by volume instead, with a "Other Types" /
+    "Other Reps" roll-up row for the remainder so a parent row's total still
+    always equals the sum of its visible children. The one thing always
+    rolled up regardless is ticket ownership that isn't a real named person
+    (No Seller ID / Unmapped Seller / Unassigned Rep) - shown as "Other
+    Reps" since there's no person to list. Reused for both First Response
+    TAT and Resolution TAT by passing a different `tat_col`/`bm_tat`."""
     rows: list[dict] = []
     for g in group_labels:
         g_mask = c["Group"] == g
         rows += _entity_tat_rows(c, g_mask, g, periods, tat_col, bm_tat, indent=0)
 
         type_counts = c.loc[g_mask, "Type"].value_counts()
-        for t in type_counts.head(top_types_per_group).index.tolist():
+        types_to_show = type_counts.index.tolist() if top_types_per_group is None \
+            else type_counts.head(top_types_per_group).index.tolist()
+        for t in types_to_show:
             gt_mask = g_mask & (c["Type"] == t)
             rows += _entity_tat_rows(c, gt_mask, t, periods, tat_col, bm_tat, indent=1)
 
             sp_counts = c.loc[gt_mask, "SalesPerson"].value_counts()
             sp_counts = sp_counts[~sp_counts.index.isin(_PSEUDO_SALES_PERSON)]
-            for sp in sp_counts.head(top_persons_per_combo).index.tolist():
+            persons_to_show = sp_counts.index.tolist() if top_persons_per_combo is None \
+                else sp_counts.head(top_persons_per_combo).index.tolist()
+            for sp in persons_to_show:
                 gtsp_mask = gt_mask & (c["SalesPerson"] == sp)
                 rows += _entity_tat_rows(c, gtsp_mask, sp, periods, tat_col, bm_tat, indent=2)
+
+            other_sp_mask = gt_mask & ~c["SalesPerson"].isin(persons_to_show)
+            if other_sp_mask.any():
+                rows += _entity_tat_rows(c, other_sp_mask, "Other Reps", periods, tat_col, bm_tat, indent=2)
+
+        other_type_mask = g_mask & ~c["Type"].isin(types_to_show)
+        if other_type_mask.any():
+            rows += _entity_tat_rows(c, other_type_mask, "Other Types", periods, tat_col, bm_tat, indent=1)
     return rows
 
 
