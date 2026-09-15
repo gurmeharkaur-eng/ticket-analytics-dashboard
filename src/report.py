@@ -54,44 +54,30 @@ def render(c: pd.DataFrame, as_of: pd.Timestamp, reps: list[str], mapping: pd.Da
     st.markdown(
         '<div class="note">D-1 and D-2 rate/TAT cells are shown uncolored on purpose: most of "today" and '
         '"yesterday"\'s tickets haven\'t had time to resolve yet, so Resolution Rate reads artificially low '
-        'and Avg/Median TAT of the few already-resolved ones reads artificially fast - neither reflects '
-        'true performance yet. Volume/count cells are unaffected. TAT figures exclude Sunday (non-working '
-        'day) - see Logic Validation.</div>',
+        'and Median TAT of the few already-resolved ones reads artificially fast - neither reflects true '
+        'performance yet. Volume/count cells are unaffected. TAT figures exclude Sunday (non-working day) '
+        '- see Logic Validation.</div>',
         unsafe_allow_html=True,
     )
     overall_rows = tm.overall_matrix_rows(c, periods, bm)
     data, colors = tm.build_matrix(overall_rows, periods)
     show_matrix(data, colors)
-    csat = tm.csat_row(c, periods)
-    csat_data, csat_colors = tm.build_matrix([csat], periods)
-    show_matrix(csat_data, csat_colors)
-    st.caption("CSAT is shown unscored (no color) - survey response volume here is under 1% of tickets, "
-               "too thin to color-code per period without being misleading.")
 
-    # --------------------------------------------------------------- Group Matrix --
-    section("Group Performance - Time Period Trend", "Volume + Resolution Rate per Group, curated to the "
-            "top Groups by volume plus any Group flagged elsewhere in the report even if smaller.")
-    grp_labels = perf.curate(perf.group_rollup_performance(c, bm), n=8)["Group"].tolist()
-    grp_rows = tm.segment_trend_rows(c, "Group", grp_labels, periods, bm)
-    gdata, gcolors = tm.build_matrix(grp_rows, periods)
-    show_matrix(gdata, gcolors, height=560)
+    # ----------------------------------------------- Group -> Type -> Sales Person --
+    grp_labels = perf.curate(perf.group_rollup_performance(c, bm), n=6)["Group"].tolist()
+    section("Group -> Type -> Sales Person: First Response TAT - Time Period Trend",
+            "One table, not three: Type is a subset of Group, and each Sales Person's work within a Group x "
+            "Type is a further subset - shown nested rather than as three disconnected cuts. Curated: top "
+            "Groups by volume, their top Types, and the Sales Persons driving each Type.")
+    fr_rows = tm.group_type_person_hierarchy_rows(c, periods, "FRTAT", bm.median_fr_tat, grp_labels)
+    frdata, frcolors = tm.build_matrix(fr_rows, periods)
+    show_matrix(frdata, frcolors, height=680)
 
-    # ---------------------------------------------------------------- Type Matrix --
-    section("Type Performance - Time Period Trend", "Curated to the top Types by volume plus any flagged Type.")
-    typ_labels = perf.curate(perf.type_performance(c, bm), n=8)["Type"].tolist()
-    typ_rows = tm.segment_trend_rows(c, "Type", typ_labels, periods, bm)
-    tdata, tcolors = tm.build_matrix(typ_rows, periods)
-    show_matrix(tdata, tcolors, height=560)
-
-    # ----------------------------------------------------------- Sales Person Matrix --
-    section("Sales Person Performance - Time Period Trend", "Curated to the top reps by volume plus any rep "
-            "flagged elsewhere - watch for a rep whose Resolution Rate cell turns red/amber in a recent "
-            "period after being green earlier (or the reverse).")
-    sp_perf = perf.sales_performance(c, reps, bm)
-    sp_labels = perf.curate(sp_perf, n=10)["Sales Person"].tolist()
-    sp_rows = tm.segment_trend_rows(c, "SalesPerson", sp_labels, periods, bm)
-    spdata, spcolors = tm.build_matrix(sp_rows, periods)
-    show_matrix(spdata, spcolors, height=680)
+    section("Group -> Type -> Sales Person: Resolution TAT - Time Period Trend",
+            "Same hierarchy, Resolution TAT instead of First Response TAT.")
+    res_rows = tm.group_type_person_hierarchy_rows(c, periods, "RESTAT", bm.median_res_tat, grp_labels)
+    resdata, rescolors = tm.build_matrix(res_rows, periods)
+    show_matrix(resdata, rescolors, height=680)
 
     # --------------------------------------------------------------- Seller Matrix --
     section("Seller Performance - Time Period Trend", "Top sellers by ticket volume (real Seller IDs only).")

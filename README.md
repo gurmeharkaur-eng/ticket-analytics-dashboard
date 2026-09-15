@@ -64,13 +64,15 @@ pushed to GitHub or shown on a deployed link.
    Resolved+Closed %, **Resolved In TAT % / Out of TAT %** (per-ticket,
    using the real Due-by-Time deadline - see below), Median Resolution/First
    Response TAT, each across D-1..M-3, color-coded against the full-period
-   benchmark. CSAT shown separately, unscored (response volume too thin to
-   color per period).
-4. **Group / Type / Sales Person / Seller matrices** - Volume + Resolution
-   Rate per segment (curated: top by volume + anything flagged), same time
-   periods, same color rule. The Sales Person matrix is where an individual
-   rep's cell turning red/amber in a recent period (after being green
-   earlier) is the signal to watch.
+   benchmark.
+4. **Group → Type → Sales Person matrices (x2: First Response TAT and
+   Resolution TAT)** - one nested table, not three disconnected cuts: Type
+   is a subset of Group, and each Sales Person's work within a Group x Type
+   is a further subset, so it's shown that way (indented rows), curated at
+   each level (top Groups by volume, their top Types, the Sales Persons
+   driving each). A rep's cell turning red/amber in a recent period after
+   being green earlier is the signal to watch. Plus a **Seller matrix**
+   (Volume + Resolution Rate, top sellers by volume).
 5. **Seller Problem Table** - every Group x Type x Seller combination with
    >=20 tickets, **not filtered down to a shortlist** - the whole table,
    with the row itself colored (red/amber/green) so problems are scannable

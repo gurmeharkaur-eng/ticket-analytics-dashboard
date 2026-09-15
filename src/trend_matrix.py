@@ -146,24 +146,6 @@ def overall_matrix_rows(c: pd.DataFrame, periods: list[tuple[str, pd.Timestamp, 
     return rows
 
 
-def csat_row(c: pd.DataFrame, periods: list[tuple[str, pd.Timestamp, pd.Timestamp]]) -> dict:
-    """Shown separately from the main matrix, unscored (no color) below a
-    minimum response count - survey volume is too thin here (<1% response
-    rate) to trust a per-period color flag."""
-    values = {}
-    for plabel, start, end in periods:
-        sub = c[period_mask(c, start, end)]
-        s = sub["SurveySentiment"].dropna()
-        n = len(s)
-        if n == 0:
-            values[plabel] = (NO_DATA, None)
-            continue
-        pos = (s == "Positive").sum()
-        csat = pos / n
-        values[plabel] = (f"{csat:.0%} (n={n})", None)
-    return {"label": "CSAT (n=responses)", "values": values}
-
-
 def segment_trend_rows(c: pd.DataFrame, dim_col: str, segment_labels: list[str],
                         periods: list[tuple[str, pd.Timestamp, pd.Timestamp]], bm: Benchmark) -> list[dict]:
     """Volume + Resolution Rate row pair per segment, for the given curated
@@ -191,16 +173,90 @@ def segment_trend_rows(c: pd.DataFrame, dim_col: str, segment_labels: list[str],
     return rows
 
 
+_PSEUDO_SALES_PERSON = {"No Seller ID", "Unmapped Seller", "Unassigned Rep"}
+# A real Unicode non-breaking space, not the HTML entity "&nbsp;" - these row
+# labels go through Streamlit's dataframe grid (plain text), which doesn't
+# decode HTML the way st.markdown does, so a literal "&nbsp;" would show up
+# as 6 literal characters instead of an indent.
+INDENT = "    "
+
+
+def _entity_tat_rows(c: pd.DataFrame, mask: pd.Series, label: str,
+                      periods: list[tuple[str, pd.Timestamp, pd.Timestamp]],
+                      tat_col: str, bm_tat: float, indent: int) -> list[dict]:
+    """Volume + Median TAT row pair for one entity, already isolated by
+    `mask` (a Group, a Group x Type, or a Group x Type x Sales Person)."""
+    vol_values, tat_values = {}, {}
+    for plabel, start, end in periods:
+        sub = c[period_mask(c, start, end) & mask]
+        n = len(sub)
+        immature = plabel in IMMATURE_RATE_PERIODS
+        vol_values[plabel] = (f"{n:,}" if n else NO_DATA, None)
+        if n == 0:
+            tat_values[plabel] = (NO_DATA, None)
+        else:
+            v = sub[tat_col].median()
+            tat_values[plabel] = (NO_DATA, None) if pd.isna(v) else \
+                (f"{v:.1f}h", None if immature else _tat_color(v, bm_tat))
+    pad = INDENT * indent
+    return [
+        {"label": f"{pad}{label} - Volume", "values": vol_values},
+        {"label": f"{pad}{label} - Median TAT", "values": tat_values},
+    ]
+
+
+def group_type_person_hierarchy_rows(c: pd.DataFrame, periods: list[tuple[str, pd.Timestamp, pd.Timestamp]],
+                                      tat_col: str, bm_tat: float, group_labels: list[str],
+                                      top_types_per_group: int = 2, top_persons_per_combo: int = 2) -> list[dict]:
+    """Group -> Type -> Sales Person, ALL IN ONE table (Type is a subset of
+    Group; each Sales Person's work within a Group x Type is a further
+    subset) - curated at each level (top by volume) to keep the table
+    bounded. Reused for both First Response TAT and Resolution TAT by
+    passing a different `tat_col`/`bm_tat`."""
+    rows: list[dict] = []
+    for g in group_labels:
+        g_mask = c["Group"] == g
+        rows += _entity_tat_rows(c, g_mask, g, periods, tat_col, bm_tat, indent=0)
+
+        type_counts = c.loc[g_mask, "Type"].value_counts()
+        for t in type_counts.head(top_types_per_group).index.tolist():
+            gt_mask = g_mask & (c["Type"] == t)
+            rows += _entity_tat_rows(c, gt_mask, t, periods, tat_col, bm_tat, indent=1)
+
+            sp_counts = c.loc[gt_mask, "SalesPerson"].value_counts()
+            sp_counts = sp_counts[~sp_counts.index.isin(_PSEUDO_SALES_PERSON)]
+            for sp in sp_counts.head(top_persons_per_combo).index.tolist():
+                gtsp_mask = gt_mask & (c["SalesPerson"] == sp)
+                rows += _entity_tat_rows(c, gtsp_mask, sp, periods, tat_col, bm_tat, indent=2)
+    return rows
+
+
+def _dedupe_labels(labels: list[str]) -> list[str]:
+    """pandas' Styler.apply/.map refuses a non-unique index - the same
+    Sales Person can legitimately be a top performer under more than one
+    Group x Type (e.g. handling Callback Request in two different Groups),
+    producing an identical row label at the same indent level. Disambiguate
+    by appending zero-width spaces (invisible - the displayed text is
+    unchanged) rather than truncating or hiding a real row."""
+    seen: dict[str, int] = {}
+    out = []
+    for label in labels:
+        n = seen.get(label, 0)
+        seen[label] = n + 1
+        out.append(label + ("​" * n))
+    return out
+
+
 def build_matrix(rows: list[dict], periods: list[tuple[str, pd.Timestamp, pd.Timestamp]]) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Returns (display_df, color_df) - both indexed by row label, columned
     by period label, same shape. display_df holds pre-formatted text;
     color_df holds a CSS 'background-color: #xxxxxx' string or ''."""
-    labels = [r["label"] for r in rows]
+    labels = _dedupe_labels([r["label"] for r in rows])
     period_labels = [p[0] for p in periods]
     data = pd.DataFrame(index=labels, columns=period_labels, dtype=object)
     colors = pd.DataFrame("", index=labels, columns=period_labels, dtype=object)
-    for r in rows:
+    for label, r in zip(labels, rows):
         for plabel, (txt, color) in r["values"].items():
-            data.loc[r["label"], plabel] = txt
-            colors.loc[r["label"], plabel] = f"background-color: {color}" if color else ""
+            data.loc[label, plabel] = txt
+            colors.loc[label, plabel] = f"background-color: {color}" if color else ""
     return data, colors
