@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Real ticket/seller data - not needed for the app to run (it just prompts
+# for upload without it), and this repo is public, so it stays out entirely.
+sample_data/

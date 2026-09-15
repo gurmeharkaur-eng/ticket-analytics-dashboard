@@ -1,0 +1,124 @@
+"""Custom CSS and small rendering helpers for a compact, founder-friendly,
+data-first layout: small consistent fonts, dense tables, compact KPI cards,
+minimal color, horizontal tab navigation. No large fonts, no big cards, no
+decorative charts.
+"""
+from __future__ import annotations
+
+import pandas as pd
+import streamlit as st
+
+CSS = """
+<style>
+html, body, [class*="css"]  { font-size: 13px; }
+.block-container { padding-top: 1.2rem; padding-bottom: 2rem; max-width: 1400px; }
+h1 { font-size: 1.35rem !important; font-weight: 700; margin-bottom: 0.1rem; }
+h2 { font-size: 1.05rem !important; font-weight: 700; margin-top: 1.1rem; margin-bottom: 0.3rem; }
+h3, .section-sub { font-size: 0.82rem !important; font-weight: 600; color: #6B7280;
+    text-transform: none; margin-top: 0.9rem; margin-bottom: 0.35rem; }
+p, .stMarkdown, .stCaption { font-size: 0.82rem; }
+.stTabs [data-baseweb="tab-list"] { gap: 2px; }
+.stTabs [data-baseweb="tab"] { height: 34px; padding: 4px 14px; font-size: 0.8rem; font-weight: 600; }
+.stDataFrame, .stTable { font-size: 0.78rem !important; }
+div[data-testid="stMetricValue"] { font-size: 1.15rem; }
+div[data-testid="stMetricLabel"] { font-size: 0.7rem; color: #6B7280; }
+
+.kpi-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
+.kpi-card { background: #F3F4F6; border: 1px solid #E5E7EB; border-radius: 6px;
+    padding: 7px 12px; min-width: 128px; flex: 1 1 128px; }
+.kpi-label { font-size: 0.66rem; font-weight: 700; color: #6B7280; letter-spacing: .02em;
+    text-transform: uppercase; margin-bottom: 2px; }
+.kpi-value { font-size: 1.25rem; font-weight: 700; color: #111827; line-height: 1.15; }
+
+.note { font-size: 0.75rem; color: #6B7280; font-style: italic; margin: 2px 0 8px 0; }
+.finding { font-size: 0.85rem; padding: 3px 0; }
+.priority-High { background:#FEE2E2; font-weight:700; padding:2px 8px; border-radius:4px; }
+.priority-Medium { background:#FEF3C7; font-weight:700; padding:2px 8px; border-radius:4px; }
+.priority-Low { background:#DCFCE7; font-weight:700; padding:2px 8px; border-radius:4px; }
+.badge { font-weight:700; padding:2px 9px; border-radius:4px; font-size:0.74rem; white-space:nowrap; }
+.badge-high { background:#FEE2E2; color:#991B1B; }
+.badge-medium { background:#FEF3C7; color:#92400E; }
+.badge-opportunity { background:#DCFCE7; color:#166534; }
+
+.kf-card { background:#FFFFFF; border:1px solid #E5E7EB; border-left:4px solid #9CA3AF;
+    border-radius:6px; padding:8px 12px; margin-bottom:6px; }
+.kf-card.positive { border-left-color:#16A34A; }
+.kf-card.negative { border-left-color:#DC2626; }
+.kf-card.opportunity { border-left-color:#2563EB; }
+.kf-label { font-size:0.66rem; font-weight:700; color:#6B7280; text-transform:uppercase; letter-spacing:.02em; }
+.kf-text { font-size:0.85rem; color:#111827; margin-top:2px; }
+</style>
+"""
+
+PRIORITY_BADGE = {
+    "High Priority": ("badge-high", "\U0001F534"),
+    "Medium Priority": ("badge-medium", "\U0001F7E1"),
+    "Opportunity": ("badge-opportunity", "\U0001F7E2"),
+}
+
+
+def priority_badge(priority: str) -> str:
+    cls, dot = PRIORITY_BADGE.get(priority, ("badge-medium", ""))
+    return f'<span class="badge {cls}">{dot} {priority}</span>'
+
+
+def inject_custom_css() -> None:
+    st.markdown(CSS, unsafe_allow_html=True)
+
+
+def kpi_row(items: list[tuple[str, str]]) -> None:
+    """items: list of (label, formatted_value)."""
+    cards = "".join(
+        f'<div class="kpi-card"><div class="kpi-label">{label}</div>'
+        f'<div class="kpi-value">{value}</div></div>'
+        for label, value in items
+    )
+    st.markdown(f'<div class="kpi-row">{cards}</div>', unsafe_allow_html=True)
+
+
+def section(title: str, note: str | None = None) -> None:
+    st.markdown(f"### {title}")
+    if note:
+        st.markdown(f'<div class="note">{note}</div>', unsafe_allow_html=True)
+
+
+def fmt_int(x) -> str:
+    if pd.isna(x):
+        return "-"
+    return f"{int(round(x)):,}"
+
+
+def fmt_pct(x, decimals: int = 1) -> str:
+    if pd.isna(x):
+        return "-"
+    return f"{x * 100:.{decimals}f}%"
+
+
+def fmt_hrs(x, decimals: int = 1) -> str:
+    if pd.isna(x):
+        return "-"
+    return f"{x:.{decimals}f}"
+
+
+PCT_COLS_HINT = ("%", "pct", "Pct")
+
+
+def show_table(df: pd.DataFrame, pct_cols: list[str] | None = None, int_cols: list[str] | None = None,
+               dec_cols: list[str] | None = None, height: int | None = None, hide_index: bool = True) -> None:
+    """Compact, formatted dataframe display."""
+    pct_cols = pct_cols or [c for c in df.columns if any(h in c for h in PCT_COLS_HINT)]
+    int_cols = int_cols or []
+    dec_cols = dec_cols or []
+    fmt = {}
+    for c in pct_cols:
+        if c in df.columns:
+            fmt[c] = "{:.1%}"
+    for c in int_cols:
+        if c in df.columns:
+            fmt[c] = "{:,.0f}"
+    for c in dec_cols:
+        if c in df.columns:
+            fmt[c] = "{:.1f}"
+    styler = df.style.format(fmt, na_rep="-")
+    kwargs = {"height": height} if height is not None else {}
+    st.dataframe(styler, hide_index=hide_index, use_container_width=True, **kwargs)
